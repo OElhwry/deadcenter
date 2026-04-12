@@ -1,17 +1,13 @@
-# deadcenter.gg
+# Deadcenter
 
-## Overview
+[![Deployed](https://img.shields.io/badge/Deployed-Live-brightgreen)](https://deadcenter.fun/)
 
-Deadcenter is a fast-paced browser game built with React and Vite. Players tap or press Space to stop a moving dot on a target across a variety of level types. The app is designed as a compact, polished skill challenge with animated visuals, subtle audio feedback, and a responsive game loop.
+**Stop the dot. Beat the target.** A fast-paced browser game built with React and Vite, Deadcenter challenges players to time a moving dot on a target across dynamic levels.
 
-## Live Demo
+## ✨ Features
 
-- https://deadcenter.fun/
-
-## Key Features
-
-- Quickstart gameplay with one-click launch
-- Multiple level types including:
+- **One-tap gameplay**: Tap or press Space to stop the moving dot
+- **Multiple level types**:
   - Horizontal slider
   - Diagonal run
   - Circular orbit
@@ -21,14 +17,33 @@ Deadcenter is a fast-paced browser game built with React and Vite. Players tap o
   - Blind mode
   - Ghost mode
   - Vortex mode
-- Warmup level option with skip-warmup setting
-- Dynamic scoring system with precision and momentum mechanics
-- Day/night theme toggle
-- Sound effects and mute support
-- Playlist mode for custom level selection
-- Animated game UI with score flash and progress indicators
+- **Warmup & skip options**: Start with a warmup or jump straight into the action
+- **Dynamic scoring**: Precision- and momentum-based scoring system
+- **Theme controls**: Day/night mode with subtle visual polish
+- **Audio support**: Sound effects with mute control
+- **Playlist mode**: Custom level selection for quick replay
+- **Responsive UI**: Compact visuals with animated score flashes and progress indicators
 
-## How to Run Locally
+## 🚀 Live Demo
+
+Try it now: **https://deadcenter.fun/**
+
+## 🎮 How to Play
+
+1. Launch the game in your browser
+2. Watch the dot move across the target
+3. Tap or press `Space` to stop the dot
+4. Score is based on how close you land to the center
+5. Progress through different level types and modes
+
+## 🛠️ Tech Stack
+
+- **Frontend**: React 19
+- **Build tool**: Vite 4+
+- **Styling**: Custom CSS and component-based styling
+- **Deployment**: GitHub Pages
+
+## 💻 Development
 
 From the `deadcenter` folder:
 
@@ -37,47 +52,33 @@ npm install
 npm run dev
 ```
 
-Open the local Vite server URL shown in the terminal to play the app.
+Then open the local Vite server URL shown in the terminal.
 
-## Production Build
-
-From the `deadcenter` folder, run:
+### Build for Production
 
 ```bash
 npm run build
 npm run preview
 ```
 
-This generates an optimized production build in `dist` and previews it locally.
+This generates an optimized production build in `dist` and lets you preview the production output locally.
 
-## Project Structure
+## 📦 Project Structure
 
 - `deadcenter/src/App.jsx` — main game logic, rendering, and UI
+- `deadcenter/src/main.jsx` — React entry point
 - `deadcenter/package.json` — project scripts and dependencies
+- `deadcenter/vite.config.js` — Vite configuration
 - `deadcenter/public/` — static assets and deployment files
-- `docs/` — built deployment output for documentation or hosted site
+- `docs/` — built deployment output for the hosted site
 
-## Technology Stack
+## 🎨 Design Philosophy
 
-- React 19
-- Vite 4+ for development and build tooling
-- Vanilla CSS-in-JS styling inside components
+Deadcenter focuses on polished, lightweight gameplay with clear visuals and fast feedback. The UI is built to feel responsive on both desktop and mobile while keeping controls simple and intuitive.
 
-## Gameplay Details
+## 📄 Notes
 
-The game cycles through selected levels and awards performance-based scores from 0 to 100. Each level uses a different movement pattern and scoring rule, encouraging players to adapt:
-
-- Stop a sliding dot on a center target
-- Time diagonal and circular moves precisely
-- Track a moving target in `movingtarget` levels
-- React to hidden movement in `blind` and `ghost` modes
-- Match an orbiting target in `vortex` mode
-
-The final result screen shows average score, custom badges, and per-level breakdown.
-
-## Notes
-
-- The app currently lives in the `deadcenter` subfolder as a self-contained React/Vite project.
-- Sound is optional and can be muted in the settings panel.
-- The app is optimized for desktop browser play and tap/keyboard control.
+- The app lives inside the `deadcenter` subfolder as a self-contained React/Vite project.
+- Audio is optional and can be muted in the settings panel.
+- The game is optimized for browser play with both tap and keyboard controls.
 

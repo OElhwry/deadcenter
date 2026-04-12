@@ -50,25 +50,35 @@ function pickLevels(count, skipWarmup) {
 }
 
 // ─── SCORING ─────────────────────────────────────────────────────────────────
+// All scoring uses dot-center vs target-center, plus a small tolerance
+// so 100 is achievable even when dot steps don't land exactly on target.
 function scoreH(x, precision, targetX = CX) {
-  const dist = Math.abs(x - targetX);
-  const mul  = precision ? 200 : 120;
-  return Math.max(0, Math.round(100 - (dist / (BAR_W / 2)) * mul));
+  const dotCenter = x + DOT / 2;
+  const tgtCenter = targetX + DOT / 2;
+  const dist = Math.abs(dotCenter - tgtCenter);
+  const tolerance = precision ? 1 : 3; // px dead-zone → score 100
+  const mul = precision ? 190 : 110;
+  return Math.max(0, Math.min(100, Math.round(100 - Math.max(0, dist - tolerance) / (BAR_W / 2) * mul)));
 }
 function scoreDiag(t) {
   const end = SQ - DOT;
-  return Math.max(0, Math.round(100 - (Math.abs(t - end) / end) * 180));
+  const dist = Math.abs(t - end);
+  const tolerance = 4;
+  return Math.max(0, Math.min(100, Math.round(100 - Math.max(0, dist - tolerance) / end * 140)));
 }
 function scoreCircle(angle, targetAngle = -Math.PI / 2) {
   let diff = angle - targetAngle;
   while (diff >  Math.PI) diff -= 2 * Math.PI;
   while (diff < -Math.PI) diff += 2 * Math.PI;
-  return Math.max(0, Math.round(100 - (Math.abs(diff) / Math.PI) * 150));
+  const tolerance = 0.04; // radians dead-zone
+  return Math.max(0, Math.min(100, Math.round(100 - Math.max(0, Math.abs(diff) - tolerance) / Math.PI * 140)));
 }
 function score2D(x, y) {
-  const dx = x - (SQ / 2 - DOT / 2);
-  const dy = y - (SQ / 2 - DOT / 2);
-  return Math.max(0, Math.round(100 - (Math.sqrt(dx*dx+dy*dy) / (SQ / 2)) * 150));
+  const dx = (x + DOT / 2) - SQ / 2;
+  const dy = (y + DOT / 2) - SQ / 2;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  const tolerance = 3;
+  return Math.max(0, Math.min(100, Math.round(100 - Math.max(0, dist - tolerance) / (SQ / 2) * 140)));
 }
 
 function grade(avg) {
@@ -98,7 +108,10 @@ function playTone(ctx, freq, type="sine", dur=0.12, vol=0.15) {
 
 function playScore(ctx, score) {
   if (!ctx) return;
-  if (score >= 80) {
+  if (score >= 90) {
+    // Perfect shot — ascending fanfare
+    [880, 1108, 1320, 1760].forEach((f, i) => setTimeout(() => playTone(ctx, f, "sine", 0.18, 0.12), i * 60));
+  } else if (score >= 80) {
     playTone(ctx, 660,"sine",0.07,0.13);
     setTimeout(()=>playTone(ctx,990,"sine",0.14,0.13),75);
     setTimeout(()=>playTone(ctx,1320,"sine",0.18,0.1),150);
@@ -106,43 +119,82 @@ function playScore(ctx, score) {
     playTone(ctx, 440,"sine",0.13,0.1);
   } else {
     playTone(ctx, 160,"sawtooth",0.2,0.08);
+    setTimeout(()=>playTone(ctx,130,"sawtooth",0.15,0.06),80);
   }
 }
 
-function playClick(ctx) { playTone(ctx,600,"sine",0.05,0.08); }
+// Button click: quick snappy tick
+function playClick(ctx) {
+  if (!ctx) return;
+  playTone(ctx, 800, "square", 0.04, 0.06);
+  setTimeout(() => playTone(ctx, 1000, "square", 0.03, 0.04), 30);
+}
 
-// Ambient drone: layered detuned oscillators
-function startDrone(ctx) {
-  if (!ctx) return ()=>{};
+// Hover sound: subtle softer click
+function playHover(ctx) { playTone(ctx, 600, "sine", 0.03, 0.03); }
+
+// ── HOME SCREEN MUSIC ──────────────────────────────────────────────────────
+// Chiptune-style arpeggiated loop using Web Audio scheduling
+function startMenuMusic(ctx) {
+  if (!ctx) return () => {};
   const master = ctx.createGain();
   master.gain.value = 0;
   master.connect(ctx.destination);
-  master.gain.linearRampToValueAtTime(0.06, ctx.currentTime + 2);
+  master.gain.linearRampToValueAtTime(0.07, ctx.currentTime + 1.5);
 
-  const freqs = [55, 82.4, 110, 164.8];
-  const oscs = freqs.map((f, i) => {
-    const o = ctx.createOscillator();
-    const g = ctx.createGain();
-    o.type = i % 2 === 0 ? "sine" : "triangle";
-    o.frequency.value = f;
-    o.detune.value = (Math.random() - 0.5) * 8;
-    g.gain.value = [0.4, 0.2, 0.25, 0.15][i];
-    o.connect(g); g.connect(master);
-    o.start();
-    return o;
-  });
+  // Pentatonic minor root: A2 = 110Hz
+  // Scale degrees: 1, b3, 4, 5, b7  → 110, 130.8, 146.8, 165, 195.9
+  const scale = [110, 130.8, 146.8, 165, 195.9, 220, 261.6, 293.6, 330, 392];
+  const melody = [4,6,7,6,4,2,0,2, 4,6,9,8,6,4,2,4];  // indices into scale
+  const bpm = 140;
+  const step = 60 / bpm;            // seconds per beat
+  let stopped = false;
+  let timeoutIds = [];
 
-  // Slow LFO on gain for pulse feel
-  const lfo = ctx.createOscillator();
-  const lfoGain = ctx.createGain();
-  lfo.frequency.value = 0.18;
-  lfoGain.gain.value = 0.018;
-  lfo.connect(lfoGain); lfoGain.connect(master.gain);
-  lfo.start();
+  const scheduleBar = (barStart) => {
+    if (stopped) return;
+    melody.forEach((deg, i) => {
+      const t = barStart + i * step * 0.5;
+      const freq = scale[deg % scale.length];
+      // schedule via AudioContext time for tight timing
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = "square";
+      o.frequency.value = freq * 2; // up an octave — bright chiptune
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.22, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.001, t + step * 0.45);
+      o.connect(g); g.connect(master);
+      o.start(t); o.stop(t + step * 0.5);
+    });
+
+    // Bass line — root notes
+    [0, 0, 2, 0].forEach((deg, i) => {
+      const t = barStart + i * step * 2;
+      const freq = scale[deg];
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = "triangle";
+      o.frequency.value = freq;
+      g.gain.setValueAtTime(0.18, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + step * 1.8);
+      o.connect(g); g.connect(master);
+      o.start(t); o.stop(t + step * 2);
+    });
+
+    // schedule next bar
+    const barLen = melody.length * step * 0.5;
+    const id = setTimeout(() => scheduleBar(barStart + barLen), (barLen - 0.2) * 1000);
+    timeoutIds.push(id);
+  };
+
+  scheduleBar(ctx.currentTime + 0.1);
 
   return () => {
-    master.gain.linearRampToValueAtTime(0, ctx.currentTime + 1.5);
-    setTimeout(() => { oscs.forEach(o => { try { o.stop(); } catch {} }); try { lfo.stop(); } catch {} }, 2000);
+    stopped = true;
+    timeoutIds.forEach(clearTimeout);
+    master.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.8);
+    setTimeout(() => { try { master.disconnect(); } catch {} }, 1500);
   };
 }
 
@@ -157,6 +209,9 @@ export default function App() {
   const [playing,      setPlaying]      = useState(false);
   const [lastScore,    setLastScore]    = useState(null);
   const [showScore,    setShowScore]    = useState(false);
+  const [musicVol,     setMusicVol]     = useState(0.1);
+  const [musicPaused,  setMusicPaused]  = useState(false);
+  const [scoreWarmup,  setScoreWarmup]  = useState(false);
 
   const T = settings.day ? LIGHT : DARK;
 
@@ -186,9 +241,29 @@ export default function App() {
   const audioCtx      = useRef(null);
   const mutedRef      = useRef(false);
   const droneStopRef  = useRef(null);
+  const menuMusicRef  = useRef(null);
+  const gameAudioRef  = useRef(null);   // Nstryder.mp3 element
   const frameRef      = useRef(0);
 
   mutedRef.current = settings.mute;
+
+  // When mute toggles, pause/resume music tracks too
+  useEffect(() => {
+    if (settings.mute) {
+      if (gameAudioRef.current && !gameAudioRef.current.paused) gameAudioRef.current.pause();
+      if (menuMusicRef.current) { menuMusicRef.current(); menuMusicRef.current = null; }
+    } else {
+      // Resume game audio if we're in-game
+      if (screen === "play" && gameAudioRef.current && gameAudioRef.current.paused && !musicPaused) {
+        gameAudioRef.current.play().catch(() => {});
+      }
+      // Restart menu music if we're on menu
+      if (screen === "menu" && !menuMusicRef.current) {
+        menuMusicRef.current = startMenuMusic(getCtx());
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings.mute]);
 
   const getCtx = useCallback(() => {
     if (!audioCtx.current) audioCtx.current = makeCtx();
@@ -206,10 +281,13 @@ export default function App() {
     const p = posRef.current;
     frameRef.current++;
 
-    // momentum: medium+ levels get faster the longer you wait
-    const hasMomentum = lv.diff !== "easy" && !lv.warmup;
+    // momentum: ramps over 10 s (600 frames), cap depends on difficulty
+    // medium→2x, hard→3x, impossible→4x, easy/warmup→no momentum
+    const MCAP = { medium: 1.0, hard: 2.0, impossible: 3.0 };
+    const hasMomentum = !lv.warmup && lv.diff !== "easy";
     if (hasMomentum) {
-      momentumRef.current = 1 + Math.min(2.5, frameRef.current / 180);
+      const cap = MCAP[lv.diff] ?? 1.0;
+      momentumRef.current = 1 + cap * Math.min(1, frameRef.current / 600);
       if (frameRef.current % 30 === 0) setMomentumDraw(momentumRef.current);
     }
     const spd = lv.speed * (hasMomentum ? momentumRef.current : 1);
@@ -372,33 +450,66 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [screen, handleStop]);
 
+  // Start/stop menu music when screen changes
+  useEffect(() => {
+    if (mutedRef.current) return;
+    if (screen === "menu") {
+      if (!menuMusicRef.current) {
+        menuMusicRef.current = startMenuMusic(getCtx());
+      }
+    } else {
+      if (menuMusicRef.current) { menuMusicRef.current(); menuMusicRef.current = null; }
+    }
+  }, [screen, getCtx]);
+
+  // Initialise (or reuse) the Nstryder.mp3 Audio element
+  const getGameAudio = useCallback(() => {
+    if (!gameAudioRef.current) {
+      const a = new Audio("/Nstryder.mp3");
+      a.loop = true;
+      a.volume = 0.1;
+      gameAudioRef.current = a;
+    }
+    return gameAudioRef.current;
+  }, []);
+
   useEffect(() => () => {
     cancelAnimationFrame(rafRef.current);
     activeRef.current = false;
     if (droneStopRef.current) droneStopRef.current();
+    if (menuMusicRef.current) menuMusicRef.current();
+    if (gameAudioRef.current) { gameAudioRef.current.pause(); gameAudioRef.current = null; }
   }, []);
 
-  const startGame = useCallback((countOrLevels) => {
+  const startGame = useCallback((countOrLevels, opts = {}) => {
     const chosen = Array.isArray(countOrLevels)
       ? countOrLevels
       : pickLevels(countOrLevels, settings.skipWarmup);
     levelsRef.current = chosen;
     setLevels(chosen);
     setScores([]);
+    setScoreWarmup(opts.countWarmup ?? false);
     setShowSettings(false);
+    setMusicPaused(false);
     setScreen("play");
     if (!mutedRef.current) {
-      const ctx = getCtx();
-      if (droneStopRef.current) droneStopRef.current();
-      droneStopRef.current = startDrone(ctx);
+      if (droneStopRef.current) { droneStopRef.current(); droneStopRef.current = null; }
+      const audio = getGameAudio();
+      audio.volume = musicVol;
+      // only seek to start if not already playing (i.e. not a retry)
+      if (audio.paused) {
+        audio.currentTime = 0;
+        audio.play().catch(() => {});
+      }
     }
     setTimeout(() => startLevel(0), 200);
-  }, [settings.skipWarmup, startLevel, getCtx]);
+  }, [settings.skipWarmup, startLevel, getGameAudio, musicVol]);
 
   const goMenu = useCallback(() => {
     cancelAnimationFrame(rafRef.current);
     activeRef.current = false;
-    if (droneStopRef.current) { droneStopRef.current(); droneStopRef.current=null; }
+    if (droneStopRef.current) { droneStopRef.current(); droneStopRef.current = null; }
+    if (gameAudioRef.current) { gameAudioRef.current.pause(); /* keep currentTime so next play resumes */ }
     setScreen("menu");
   }, []);
 
@@ -406,11 +517,13 @@ export default function App() {
   if (screen === "menu") return (
     <Menu T={T} onStart={startGame} settings={settings} showSettings={showSettings}
       setShowSettings={setShowSettings} setSettings={setSettings}
-      sndClick={() => snd(playClick)} />
+      sndClick={() => snd(playClick)}
+      sndHover={() => snd(playHover)} />
   );
 
   if (screen === "result") return (
-    <Result T={T} scores={scores} levels={levels} onReplay={() => startGame(levels)} onMenu={goMenu} />
+    <Result T={T} scores={scores} levels={levels} scoreWarmup={scoreWarmup}
+      onReplay={() => startGame(levels, { countWarmup: scoreWarmup })} onMenu={goMenu} />
   );
 
   const lv = levels[lvIdx];
@@ -426,16 +539,27 @@ export default function App() {
       transition:"background 0.4s",
     }}>
       {/* top bar */}
-      <div style={{ position:"fixed", top:0, left:0, right:0, display:"flex", justifyContent:"space-between", alignItems:"center", padding:"14px 18px" }}>
-        <DeadcenterLogo T={T} size={22} />
-        <div style={{ display:"flex", gap:8 }}>
+      <div style={{ position:"fixed", top:0, left:0, right:0, display:"flex", alignItems:"center", padding:"12px 18px" }}>
+        {/* back arrow */}
+        <button onClick={e => { e.stopPropagation(); goMenu(); }}
+          style={{ background:"none", border:`1px solid ${T.border}`, color:T.sub, cursor:"pointer",
+            fontSize:14, lineHeight:1, padding:"4px 10px", borderRadius:4,
+            fontFamily:"'Courier New', monospace", opacity:0.65,
+            transition:"opacity 0.15s, color 0.15s, border-color 0.15s" }}
+          onMouseEnter={e=>{ e.currentTarget.style.opacity="1"; e.currentTarget.style.color="#00ffcc"; e.currentTarget.style.borderColor="#00ffcc"; }}
+          onMouseLeave={e=>{ e.currentTarget.style.opacity="0.65"; e.currentTarget.style.color=T.sub; e.currentTarget.style.borderColor=T.border; }}>
+          ←
+        </button>
+        {/* level progress dots — centred */}
+        <div style={{ flex:1, display:"flex", justifyContent:"center", gap:8 }}>
           {levels.map((_,i) => (
             <div key={i} style={{ width:6, height:6, borderRadius:"50%",
               background: i<lvIdx ? "#00ffcc" : i===lvIdx ? T.fg : T.hint,
               transition:"background 0.3s" }} />
           ))}
         </div>
-        <button onClick={goMenu} style={{ background:"none", border:"none", color:T.sub, cursor:"pointer", fontSize:11, letterSpacing:2, fontFamily:"'Courier New', monospace", opacity:0.5 }}>✕</button>
+        {/* spacer matches button width so dots stay centred */}
+        <div style={{ width:48 }} />
       </div>
 
       {/* difficulty badge */}
@@ -480,10 +604,35 @@ export default function App() {
         </p>
       )}
 
-      {/* watermark */}
-      <div style={{ position:"fixed", bottom:12, left:"50%", transform:"translateX(-50%)",
-        fontSize:10, letterSpacing:6, color:"#00ffcc", opacity:0.45,
-        fontFamily:"'Courier New', monospace", pointerEvents:"none" }}>DEADCENTER</div>
+      {/* music control bar — bottom of screen, stops clicks propagating to handleStop */}
+      <div onClick={e => e.stopPropagation()}
+        style={{ position:"fixed", bottom:14, left:"50%", transform:"translateX(-50%)",
+          display:"flex", alignItems:"center", gap:10, zIndex:20,
+          background: `${T.bg}cc`, border:`1px solid ${T.border}`,
+          borderRadius:20, padding:"5px 14px",
+          fontFamily:"'Courier New', monospace" }}>
+        <button
+          onClick={() => {
+            const a = gameAudioRef.current;
+            if (!a) return;
+            if (musicPaused) { a.play().catch(()=>{}); setMusicPaused(false); }
+            else             { a.pause();               setMusicPaused(true);  }
+          }}
+          style={{ background:"none", border:"none", color:"#00ffcc", cursor:"pointer",
+            fontSize:11, padding:"0 2px", lineHeight:1, opacity:0.75 }}>
+          {musicPaused ? "▶" : "⏸"}
+        </button>
+        <span style={{ fontSize:8, letterSpacing:2, color:"#00ffcc", opacity:0.45, whiteSpace:"nowrap" }}>
+          Nstryder
+        </span>
+        <input type="range" min="0" max="1" step="0.05" value={musicVol}
+          onChange={e => {
+            const v = parseFloat(e.target.value);
+            setMusicVol(v);
+            if (gameAudioRef.current) gameAudioRef.current.volume = v;
+          }}
+          style={{ width:72, accentColor:"#00ffcc", cursor:"pointer", opacity:0.6 }} />
+      </div>
     </div>
   );
 }
@@ -675,14 +824,47 @@ function SettingsPanel({ T, settings, setSettings, onClose }) {
   );
 }
 
-// ─── MENU ────────────────────────────────────────────────────────────────────
-function Menu({ T, onStart, settings, showSettings, setShowSettings, setSettings, sndClick }) {
-  const [selectedCount, setSelectedCount] = useState(null);
-  const [playlistMode, setPlaylistMode]   = useState(false);
-  const [playlistIds,  setPlaylistIds]    = useState([]);
+// ─── QUICKPLAY LEVEL PICKER ──────────────────────────────────────────────────
+const QP_MODES = [
+  // countWarmup: whether warmup score counts toward final average
+  { key:"easy",       label:"EASY",       color:"#4ade80", countWarmup: true,  build: () => {
+    const pool = POOL.filter(l=>l.diff==="easy").sort(()=>Math.random()-0.5);
+    return [WARMUP, ...pool];               // easy always includes warmup
+  }},
+  { key:"medium",     label:"MEDIUM",     color:"#f59e0b", countWarmup: false, build: (skip) => {
+    const pool = POOL.filter(l=>l.diff==="medium").sort(()=>Math.random()-0.5);
+    return skip ? pool : [WARMUP, ...pool];
+  }},
+  { key:"hard",       label:"HARD",       color:"#ef4444", countWarmup: false, build: (skip) => {
+    const pool = POOL.filter(l=>l.diff==="hard").sort(()=>Math.random()-0.5);
+    return skip ? pool : [WARMUP, ...pool];
+  }},
+  { key:"impossible", label:"IMPOSSIBLE", color:"#9b1c1c", countWarmup: false, build: (skip) => {
+    const pool = POOL.filter(l=>l.diff==="impossible").sort(()=>Math.random()-0.5);
+    return skip ? pool : [WARMUP, ...pool];
+  }},
+  { key:"all",        label:"ALL",        color:"#00ffcc", countWarmup: true,  build: () => {
+    const pool = [...POOL].sort(()=>Math.random()-0.5);
+    return [WARMUP, ...pool];               // all always includes warmup
+  }},
+];
 
-  const togglePlaylist = (id) => {
+// ─── MENU ────────────────────────────────────────────────────────────────────
+function Menu({ T, onStart, settings, showSettings, setShowSettings, setSettings, sndClick, sndHover }) {
+  const [qpMode,       setQpMode]       = useState(null);
+  const [playlistMode, setPlaylistMode] = useState(false);
+  const [playlistIds,  setPlaylistIds]  = useState([]);
+
+  const toggleLevel = (id) => {
     setPlaylistIds(prev => prev.includes(id) ? prev.filter(x=>x!==id) : [...prev, id]);
+  };
+
+  const toggleDiff = (_diffKey, levels) => {
+    const ids = levels.map(l=>l.id);
+    const allSelected = ids.every(id => playlistIds.includes(id));
+    setPlaylistIds(prev =>
+      allSelected ? prev.filter(id => !ids.includes(id)) : [...new Set([...prev, ...ids])]
+    );
   };
 
   const startPlaylist = () => {
@@ -695,12 +877,30 @@ function Menu({ T, onStart, settings, showSettings, setShowSettings, setSettings
     onStart(chosen);
   };
 
+  // max speed label per difficulty
+  const maxSpeedLabel = { easy:"none", medium:"2×", hard:"3×", impossible:"4×" };
+
+  // highlight ONLY the named diff tier (not cumulative lower tiers)
+  const QP_HIGHLIGHT = {
+    easy:       new Set(["easy"]),
+    medium:     new Set(["medium"]),
+    hard:       new Set(["hard"]),
+    impossible: new Set(["impossible"]),
+    all:        new Set(["easy","medium","hard","impossible"]),
+  };
+  const hlDiffs = qpMode ? QP_HIGHLIGHT[qpMode] : null;
+
   const diffSections = [
     { key:"easy",       label:"I — EASY",       levels: [WARMUP, ...POOL.filter(l=>l.diff==="easy")] },
     { key:"medium",     label:"II — MEDIUM",     levels: POOL.filter(l=>l.diff==="medium") },
     { key:"hard",       label:"III — HARD",      levels: POOL.filter(l=>l.diff==="hard") },
     { key:"impossible", label:"∞ — IMPOSSIBLE",  levels: POOL.filter(l=>l.diff==="impossible") },
   ];
+
+  const btnBase = {
+    fontFamily:"'Courier New', monospace", cursor:"pointer",
+    transition:"all 0.15s", letterSpacing:3, fontSize:11,
+  };
 
   return (
     <div style={{ minHeight:"100vh", display:"flex", flexDirection:"column",
@@ -709,8 +909,10 @@ function Menu({ T, onStart, settings, showSettings, setShowSettings, setSettings
       color:T.fg, textAlign:"center", transition:"background 0.4s", padding:"40px 0" }}>
 
       {/* settings gear */}
-      <button onClick={()=>setShowSettings(true)} style={{ position:"fixed", top:16, right:16,
-        background:"transparent", border:"none", cursor:"pointer", color:T.sub, fontSize:18, padding:4 }}>⚙</button>
+      <button onClick={()=>{ sndClick(); setShowSettings(true); }}
+        onMouseEnter={sndHover}
+        style={{ position:"fixed", top:16, right:16, background:"transparent",
+          border:"none", cursor:"pointer", color:T.sub, fontSize:18, padding:4 }}>⚙</button>
 
       {showSettings && <SettingsPanel T={T} settings={settings} setSettings={setSettings} onClose={()=>setShowSettings(false)} />}
 
@@ -718,35 +920,67 @@ function Menu({ T, onStart, settings, showSettings, setShowSettings, setSettings
       <div style={{ marginBottom:10 }}>
         <DeadcenterLogo T={T} size={52} />
       </div>
-      <p style={{ color:T.sub, fontSize:13, letterSpacing:4, margin:"0 0 36px", opacity:0.8  }}>stop the dot on the target</p>
+      <p style={{ color:T.sub, fontSize:13, letterSpacing:4, margin:"0 0 36px", opacity:0.8 }}>stop the dot on the target</p>
 
       {/* difficulty sections */}
-      <div style={{ width:480, textAlign:"left", marginBottom:32 }}>
+      <div style={{ width:500, textAlign:"left", marginBottom:32 }}>
         {diffSections.map(sec => {
           const dc = DIFF[sec.key];
+          const secIds = sec.levels.map(l=>l.id);
+          const allTicked = secIds.length > 0 && secIds.every(id => playlistIds.includes(id));
+          // quickplay highlight: is this diff tier included in the selected mode?
+          const secLit = !playlistMode && hlDiffs ? hlDiffs.has(sec.key) : false;
           return (
-            <div key={sec.key} style={{ marginBottom:18 }}>
-              <div style={{ fontSize:10, letterSpacing:4, color:dc.color, opacity:0.85, marginBottom:6, paddingBottom:4,
-                borderBottom:`1px solid ${dc.dim}` }}>
-                {sec.label}
+            <div key={sec.key} style={{ marginBottom:18,
+              borderRadius:6,
+              background: secLit ? `${dc.color}09` : "transparent",
+              transition:"background 0.2s",
+              padding: secLit ? "0 6px 4px" : "0" }}>
+              {/* section header with tick + speed cap */}
+              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between",
+                marginBottom:6, paddingBottom:4,
+                borderBottom:`1px solid ${secLit ? dc.color + "55" : dc.dim}`,
+                transition:"border-color 0.2s" }}>
+                <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                  {playlistMode && (
+                    <span onClick={()=>toggleDiff(sec.key, sec.levels)}
+                      style={{ color:dc.color, fontSize:12, cursor:"pointer", opacity: allTicked ? 1 : 0.4,
+                        userSelect:"none", lineHeight:1 }}>
+                      {allTicked ? "☑" : "☐"}
+                    </span>
+                  )}
+                  <span style={{ fontSize:10, letterSpacing:4, color:dc.color,
+                    opacity: secLit ? 1 : 0.85,
+                    transition:"opacity 0.2s" }}>
+                    {sec.label}
+                  </span>
+                </div>
+                <span style={{ fontSize:9, letterSpacing:2, color:dc.color, opacity:0.5 }}>
+                  max {maxSpeedLabel[sec.key]}
+                </span>
               </div>
               {sec.levels.map(lv => {
                 const selected = playlistIds.includes(lv.id);
+                const rowLit = secLit;
                 return (
-                  <div key={lv.id} onClick={playlistMode ? ()=>togglePlaylist(lv.id) : undefined}
+                  <div key={lv.id} onClick={playlistMode ? ()=>{ sndClick(); toggleLevel(lv.id); } : undefined}
+                    onMouseEnter={playlistMode ? sndHover : undefined}
                     style={{ display:"grid", gridTemplateColumns:"18px 160px 1fr",
                       alignItems:"center", gap:"0 12px",
                       padding:"7px 0", borderBottom:`1px solid ${T.border}`,
                       cursor: playlistMode ? "pointer" : "default",
                       background: selected ? `${dc.color}11` : "transparent",
                       transition:"background 0.15s" }}>
-                    <span style={{ color:dc.color, fontSize:10, opacity: selected ? 1 : 0.5 }}>
+                    <span style={{ color:dc.color, fontSize:10, opacity: rowLit ? 0.9 : selected ? 1 : 0.5 }}>
                       {playlistMode ? (selected ? "✓" : "○") : (lv.warmup ? "★" : "·")}
                     </span>
-                    <span style={{ color: selected ? T.fg : T.sub, fontSize:12, letterSpacing:1,
-                      whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{lv.label}</span>
-                    <span style={{ color:T.fg, fontSize:10, opacity: selected ? 0.7 : 0.45,
-                      whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{lv.hint}</span>
+                    <span style={{ color: (rowLit || selected) ? T.fg : T.sub, fontSize:12, letterSpacing:1,
+                      whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis",
+                      transition:"color 0.2s" }}>{lv.label}</span>
+                    <span style={{ color:T.fg, fontSize:10,
+                      opacity: rowLit ? 0.65 : selected ? 0.7 : 0.35,
+                      whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis",
+                      transition:"opacity 0.2s" }}>{lv.hint}</span>
                   </div>
                 );
               })}
@@ -757,49 +991,44 @@ function Menu({ T, onStart, settings, showSettings, setShowSettings, setSettings
 
       {/* mode toggle */}
       <div style={{ display:"flex", gap:20, marginBottom:16 }}>
-        <button onClick={()=>{ setPlaylistMode(false); setPlaylistIds([]); }}
-          style={{ background: !playlistMode ? "#00ffcc22" : "transparent",
-            border:`1px solid ${!playlistMode ? "#00ffcc" : T.border}`,
-            color: !playlistMode ? "#00ffcc" : T.sub,
-            padding:"9px 24px", fontSize:12, letterSpacing:3, cursor:"pointer",
-            fontFamily:"'Courier New', monospace", transition:"all 0.15s" }}>
-          QUICKPLAY
-        </button>
-        <button onClick={()=>{ setPlaylistMode(true); setSelectedCount(null); }}
-          style={{ background: playlistMode ? "#00ffcc22" : "transparent",
-            border:`1px solid ${playlistMode ? "#00ffcc" : T.border}`,
-            color: playlistMode ? "#00ffcc" : T.sub,
-            padding:"9px 24px", fontSize:12, letterSpacing:3, cursor:"pointer",
-            fontFamily:"'Courier New', monospace", transition:"all 0.15s" }}>
-          PLAYLIST
-        </button>
+        {[["QUICKPLAY", false], ["PLAYLIST", true]].map(([lbl, isPlaylist]) => (
+          <button key={lbl}
+            onClick={()=>{ sndClick(); setPlaylistMode(isPlaylist); if (!isPlaylist) setQpMode(null); }}
+            onMouseEnter={sndHover}
+            style={{ ...btnBase, background: playlistMode===isPlaylist ? "#00ffcc22" : "transparent",
+              border:`1px solid ${playlistMode===isPlaylist ? "#00ffcc" : T.border}`,
+              color: playlistMode===isPlaylist ? "#00ffcc" : T.sub,
+              padding:"9px 24px" }}>
+            {lbl}
+          </button>
+        ))}
       </div>
 
-      {/* count selector (quick) or playlist play */}
+      {/* quickplay mode buttons or playlist play */}
       {!playlistMode ? (
         <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:12 }}>
-          <div style={{ display:"flex", gap:10 }}>
-            {[3,5,10].map(n => (
-              <button key={n} onClick={() => { sndClick(); setSelectedCount(n); }}
-                style={{ background: selectedCount===n ? "#00ffcc22" : "transparent",
-                  border:`1px solid ${selectedCount===n ? "#00ffcc" : T.border}`,
-                  color: selectedCount===n ? "#00ffcc" : T.sub,
-                  padding:"12px 30px", fontSize:20, cursor:"pointer",
-                  fontFamily:"'Courier New', monospace", transition:"all 0.15s" }}
-                onMouseEnter={e=>{if(selectedCount!==n){e.currentTarget.style.borderColor="#00ffcc";e.currentTarget.style.color="#00ffcc";}}}
-                onMouseLeave={e=>{if(selectedCount!==n){e.currentTarget.style.borderColor=T.border;e.currentTarget.style.color=T.sub;}}}>
-                {n}
+          <div style={{ display:"flex", gap:8, flexWrap:"wrap", justifyContent:"center" }}>
+            {QP_MODES.map(m => (
+              <button key={m.key}
+                onClick={()=>{ sndClick(); setQpMode(m.key); }}
+                onMouseEnter={sndHover}
+                style={{ ...btnBase,
+                  background: qpMode===m.key ? `${m.color}22` : "transparent",
+                  border:`1px solid ${qpMode===m.key ? m.color : T.border}`,
+                  color: qpMode===m.key ? m.color : T.sub,
+                  padding:"10px 18px", fontSize:11 }}>
+                {m.label}
               </button>
             ))}
           </div>
-          {selectedCount !== null && (
-            <button onClick={()=>{ sndClick(); onStart(selectedCount); }}
+          {qpMode && (
+            <button onClick={()=>{ sndClick(); const m=QP_MODES.find(x=>x.key===qpMode); onStart(m.build(settings.skipWarmup), { countWarmup: m.countWarmup }); }}
+              onMouseEnter={e=>{ sndHover(); e.currentTarget.style.background="#00e6b8"; }}
+              onMouseLeave={e=>{ e.currentTarget.style.background="#00ffcc"; }}
               style={{ background:"#00ffcc", border:"none", color:"#000",
                 padding:"13px 52px", fontSize:13, letterSpacing:5, textTransform:"uppercase",
                 cursor:"pointer", fontFamily:"'Courier New', monospace",
-                fontWeight:"bold", borderRadius:2 }}
-              onMouseEnter={e=>e.currentTarget.style.background="#00e6b8"}
-              onMouseLeave={e=>e.currentTarget.style.background="#00ffcc"}>
+                fontWeight:"bold", borderRadius:2, transition:"background 0.15s" }}>
               PLAY
             </button>
           )}
@@ -815,7 +1044,7 @@ function Menu({ T, onStart, settings, showSettings, setShowSettings, setSettings
                 padding:"13px 52px", fontSize:13, letterSpacing:5, textTransform:"uppercase",
                 cursor:"pointer", fontFamily:"'Courier New', monospace",
                 fontWeight:"bold", borderRadius:2 }}
-              onMouseEnter={e=>e.currentTarget.style.background="#00e6b8"}
+              onMouseEnter={e=>{ sndHover(); e.currentTarget.style.background="#00e6b8"; }}
               onMouseLeave={e=>e.currentTarget.style.background="#00ffcc"}>
               PLAY
             </button>
@@ -834,8 +1063,14 @@ function Menu({ T, onStart, settings, showSettings, setShowSettings, setSettings
 }
 
 // ─── RESULT ──────────────────────────────────────────────────────────────────
-function Result({ T, scores, levels, onReplay, onMenu }) {
-  const avg = scores.length ? Math.round(scores.reduce((a,b)=>a+b,0)/scores.length) : 0;
+function Result({ T, scores, levels, scoreWarmup, onReplay, onMenu }) {
+  // exclude warmup from average unless scoreWarmup is true
+  const scoredPairs = scores
+    .map((s, i) => ({ s, lv: levels[i] }))
+    .filter(({ lv }) => scoreWarmup || !lv?.warmup);
+  const avg = scoredPairs.length
+    ? Math.round(scoredPairs.reduce((a, { s }) => a + s, 0) / scoredPairs.length)
+    : 0;
   const { label, color } = grade(avg);
   const percentile = Math.min(99, Math.round(avg*0.82 + Math.random()*9 + 3));
 
@@ -853,12 +1088,14 @@ function Result({ T, scores, levels, onReplay, onMenu }) {
         {scores.map((s,i) => {
           const lv = levels[i];
           const dc = lv ? DIFF[lv.diff] : DIFF.easy;
+          const excluded = !scoreWarmup && lv?.warmup;
           return (
-            <div key={i} style={{ textAlign:"center", minWidth:48 }}>
+            <div key={i} style={{ textAlign:"center", minWidth:48, opacity: excluded ? 0.3 : 1, transition:"opacity 0.2s" }}>
               <div style={{ color:dc.color, fontSize:9, letterSpacing:1, marginBottom:4, opacity:0.7 }}>
                 {lv?.label?.slice(0,6).toUpperCase() ?? `L${i+1}`}
               </div>
-              <div style={{ fontSize:26, color: s>=80?"#00ffcc":s>=55?"#f59e0b":"#ef4444" }}>{s}</div>
+              <div style={{ fontSize:26, color: excluded ? T.sub : s>=80?"#00ffcc":s>=55?"#f59e0b":"#ef4444" }}>{s}</div>
+              {excluded && <div style={{ fontSize:7, letterSpacing:1, color:T.sub, opacity:0.6, marginTop:2 }}>not scored</div>}
             </div>
           );
         })}

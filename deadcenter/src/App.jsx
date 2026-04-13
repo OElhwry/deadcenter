@@ -15,7 +15,8 @@ const DIFF = {
 };
 
 // ─── LEVEL DEFINITIONS ───────────────────────────────────────────────────────
-// types: h, diag, circle, 2d, chaos, blind, movingtarget, ghost, vortex
+// types: h, diag, circle, 2d, chaos, blind, movingtarget, ghost, vortex,
+// sway, countercircle, eclipse, phasecircle
 const WARMUP = { id: 0, label: "warm up", type: "h", speed: 2.8, diff: "easy",
   hint: "stop on the circle", warmup: true };
 
@@ -40,6 +41,14 @@ const POOL = [
     hint: "fully invisible — trust instinct" },
   { id:10, label: "vortex",        type: "vortex",      speed: 0.052,diff: "impossible",
     hint: "spiral orbit + rotating target" },
+  { id:11, label: "sway",          type: "sway",        speed: 0.05, diff: "easy",
+    hint: "smooth sine drift — release at center" },
+  { id:12, label: "counter orbit", type: "countercircle", speed: 0.038, diff: "medium",
+    hint: "the target loops back — meet it at the top" },
+  { id:13, label: "eclipse",       type: "eclipse",     speed: 10.5, diff: "hard",
+    hint: "the target drifts while the dot blinks" },
+  { id:14, label: "phase orbit",   type: "phasecircle", speed: 0.056, diff: "impossible",
+    hint: "phasing orbit + live target — commit on instinct" },
 ];
 
 function pickLevels(count, skipWarmup) {
@@ -218,8 +227,8 @@ export default function App() {
   const [playing,      setPlaying]      = useState(false);
   const [lastScore,    setLastScore]    = useState(null);
   const [showScore,    setShowScore]    = useState(false);
-  const [musicVol,     setMusicVol]     = useState(0.1);
-  const [musicPaused,  setMusicPaused]  = useState(false);
+  const musicVol = 0.1;
+  const musicPaused = false;
   const [scoreWarmup,  setScoreWarmup]  = useState(false);
 
   const T = settings.day ? LIGHT : DARK;
@@ -323,18 +332,27 @@ export default function App() {
         }
       }
 
-    } else if (lv.type === "movingtarget") {
+    } else if (lv.type === "movingtarget" || lv.type === "eclipse") {
       let x = p.x + spd * dirHRef.current;
       if (x >= BAR_W-DOT) { dirHRef.current=-1; x=BAR_W-DOT; }
       if (x <= 0)          { dirHRef.current= 1; x=0; }
       // crossfire (precision) target moves much faster
-      const tSpeed = lv.precision ? 5.5 : 2.5;
+      const tSpeed = lv.precision ? 5.5 : lv.type === "eclipse" ? 3.6 : 2.5;
       let tx = targetXRef.current + tSpeed * targetDirRef.current;
       if (tx >= BAR_W - 30) { targetDirRef.current=-1; tx=BAR_W-30; }
       if (tx <= 20)          { targetDirRef.current= 1; tx=20; }
       targetXRef.current = tx;
       posRef.current = { ...p, x };
       setTargetXDraw(tx);
+      if (lv.type === "eclipse") {
+        blindTimerRef.current--;
+        if (blindTimerRef.current <= 0) {
+          const v = !blindVisRef.current;
+          blindVisRef.current = v;
+          blindTimerRef.current = v ? 7 : 24;
+          setBlindVis(v);
+        }
+      }
 
     } else if (lv.type === "diag") {
       let t = p.t + diagSpRef.current;
@@ -351,6 +369,34 @@ export default function App() {
         x: SQ/2 + r*Math.cos(angle) - DOT/2,
         y: SQ/2 + r*Math.sin(angle) - DOT/2,
       };
+
+    } else if (lv.type === "sway") {
+      const t = p.t + spd;
+      const amp = BAR_W / 2 - DOT / 2 - 10;
+      const x = CX + amp * Math.sin(t);
+      posRef.current = { ...p, t, x };
+
+    } else if (lv.type === "countercircle" || lv.type === "phasecircle") {
+      let angle = p.angle + spd;
+      if (angle > Math.PI) angle -= 2 * Math.PI;
+      const r = SQ/2 - DOT - 2;
+      posRef.current = { ...p, angle,
+        x: SQ/2 + r*Math.cos(angle) - DOT/2,
+        y: SQ/2 + r*Math.sin(angle) - DOT/2,
+      };
+      const targetSpeed = lv.type === "phasecircle" ? 0.019 : 0.014;
+      const ta = (vortexTargAngleRef.current - targetSpeed + 2*Math.PI) % (2*Math.PI);
+      vortexTargAngleRef.current = ta;
+      setVortexTargAngleDraw(ta);
+      if (lv.type === "phasecircle") {
+        blindTimerRef.current--;
+        if (blindTimerRef.current <= 0) {
+          const v = !blindVisRef.current;
+          blindVisRef.current = v;
+          blindTimerRef.current = v ? 5 : 26;
+          setBlindVis(v);
+        }
+      }
 
     } else if (lv.type === "2d") {
       // random trajectory — bounces off all walls, gains speed via momentum
@@ -428,10 +474,11 @@ export default function App() {
     const pos = posRef.current;
     let sc = 0;
     const type = lv.type;
-    if (type==="h"||type==="blind"||type==="ghost"||type==="chaos") sc=scoreH(pos.x, lv.precision);
-    if (type==="movingtarget") sc=scoreH(pos.x, false, targetXRef.current);
+    if (type==="h"||type==="blind"||type==="ghost"||type==="chaos"||type==="sway") sc=scoreH(pos.x, lv.precision);
+    if (type==="movingtarget"||type==="eclipse") sc=scoreH(pos.x, false, targetXRef.current);
     if (type==="diag")   sc=scoreDiag(pos.t);
     if (type==="circle") sc=scoreCircle(pos.angle);
+    if (type==="countercircle"||type==="phasecircle") sc=scoreCircle(pos.angle, vortexTargAngleRef.current);
     if (type==="2d")     sc=score2D(pos.x, pos.y);
     if (type==="vortex") sc=scoreCircle(pos.angle, vortexTargAngleRef.current);
 
@@ -489,7 +536,6 @@ export default function App() {
     setScores([]);
     setScoreWarmup(opts.countWarmup ?? false);
     setShowSettings(false);
-    setMusicPaused(false);
     setScreen("play");
     if (droneStopRef.current) { droneStopRef.current(); droneStopRef.current = null; }
     setTimeout(() => startLevel(0), 200);
@@ -504,7 +550,7 @@ export default function App() {
 
   // ── GAME SCREEN ──
   if (screen === "menu") return (
-    <Menu T={T} onStart={startGame} settings={settings} showSettings={showSettings}
+    <LegacyMenu T={T} onStart={startGame} settings={settings} showSettings={showSettings}
       setShowSettings={setShowSettings} setSettings={setSettings}
       sndClick={() => snd(playClick)}
       sndHover={() => snd(playHover)} />
@@ -562,14 +608,17 @@ export default function App() {
       </p>
 
       {/* level renderer */}
-      {(lv.type==="h"||lv.type==="chaos"||lv.type==="blind"||lv.type==="ghost") && (
+      {(lv.type==="h"||lv.type==="chaos"||lv.type==="blind"||lv.type==="ghost"||lv.type==="sway") && (
         <HBar pos={posDraw} playing={playing} lv={lv} T={T} blindVis={blindVis} targetX={CX} />
       )}
-      {lv.type==="movingtarget" && (
-        <HBar pos={posDraw} playing={playing} lv={lv} T={T} blindVis={true} targetX={targetXDraw} moving />
+      {(lv.type==="movingtarget" || lv.type==="eclipse") && (
+        <HBar pos={posDraw} playing={playing} lv={lv} T={T} blindVis={lv.type==="eclipse" ? blindVis : true} targetX={targetXDraw} moving />
       )}
       {lv.type==="diag"   && <DiagBox     pos={posDraw} playing={playing} T={T} />}
       {lv.type==="circle" && <CircleBox   pos={posDraw} playing={playing} T={T} />}
+      {(lv.type==="countercircle" || lv.type==="phasecircle") && (
+        <CircleBox pos={posDraw} playing={playing} T={T} targetAngle={vortexTargAngleDraw} blindVis={lv.type==="phasecircle" ? blindVis : true} />
+      )}
       {lv.type==="2d"     && <Box2D       pos={posDraw} playing={playing} T={T} />}
       {lv.type==="vortex" && <VortexBox   pos={posDraw} playing={playing} T={T} targetAngle={vortexTargAngleDraw} />}
 
@@ -593,32 +642,6 @@ export default function App() {
         </p>
       )}
 
-      {/* music control bar — bottom of screen, stops clicks propagating to handleStop */}
-      <div onClick={e => e.stopPropagation()}
-        style={{ position:"fixed", bottom:14, left:"50%", transform:"translateX(-50%)",
-          display:"flex", alignItems:"center", gap:10, zIndex:20,
-          background: `${T.bg}cc`, border:`1px solid ${T.border}`,
-          borderRadius:20, padding:"5px 14px",
-          fontFamily:"'Courier New', monospace" }}>
-        <button
-          onClick={() => {
-            setMusicPaused(prev => !prev);
-          }}
-          style={{ background:"none", border:"none", color:"#00ffcc", cursor:"pointer",
-            fontSize:11, padding:"0 2px", lineHeight:1, opacity:0.75 }}>
-          {musicPaused ? "▶" : "⏸"}
-        </button>
-        <span style={{ fontSize:8, letterSpacing:2, color:"#00ffcc", opacity:0.45, whiteSpace:"nowrap" }}>
-          music
-        </span>
-        <input type="range" min="0" max="1" step="0.05" value={musicVol}
-          onChange={e => {
-            const v = parseFloat(e.target.value);
-            setMusicVol(v);
-            if (musicLoopRef.current) musicLoopRef.current.setVolume(v);
-          }}
-          style={{ width:72, accentColor:"#00ffcc", cursor:"pointer", opacity:0.6 }} />
-      </div>
     </div>
   );
 }
@@ -702,9 +725,9 @@ function DiagBox({ pos, playing, T }) {
   );
 }
 
-function CircleBox({ pos, playing, T }) {
+function CircleBox({ pos, playing, T, targetAngle = -Math.PI / 2, blindVis = true }) {
   const cx=SQ/2, cy=SQ/2, r=SQ/2-DOT-2;
-  const tx=cx, ty=DOT+4; // 12 o'clock
+  const tx=cx + r*Math.cos(targetAngle), ty=cy + r*Math.sin(targetAngle);
   return (
     <svg width={SQ} height={SQ} style={{ display:"block" }}>
       {/* orbit track */}
@@ -722,7 +745,8 @@ function CircleBox({ pos, playing, T }) {
       {/* dot */}
       <circle cx={pos.x+DOT/2} cy={pos.y+DOT/2} r={DOT/2}
         fill={playing?"#00ffcc":T.sub}
-        style={{ filter:playing?"drop-shadow(0 0 5px #00ffcc)":"none", transition:"fill 0.2s" }} />
+        opacity={blindVis ? 1 : 0}
+        style={{ filter:playing && blindVis ? "drop-shadow(0 0 5px #00ffcc)" : "none", transition:"fill 0.2s, opacity 0.2s" }} />
     </svg>
   );
 }
@@ -836,7 +860,7 @@ const QP_MODES = [
 ];
 
 // ─── MENU ────────────────────────────────────────────────────────────────────
-function LegacyMenu({ T, onStart, settings, showSettings, setShowSettings, setSettings, sndClick, sndHover }) {
+function LegacyMenuOld({ T, onStart, settings, showSettings, setShowSettings, setSettings, sndClick, sndHover }) {
   const [qpMode,       setQpMode]       = useState(null);
   const [playlistMode, setPlaylistMode] = useState(false);
   const [playlistIds,  setPlaylistIds]  = useState([]);
@@ -1049,6 +1073,185 @@ function LegacyMenu({ T, onStart, settings, showSettings, setShowSettings, setSe
 }
 
 // ─── RESULT ──────────────────────────────────────────────────────────────────
+function LegacyMenu({ T, onStart, settings, showSettings, setShowSettings, setSettings, sndClick, sndHover }) {
+  const [playlistIds, setPlaylistIds] = useState([]);
+
+  const toggleLevel = (id) => {
+    setPlaylistIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
+
+  const toggleDiff = (levels) => {
+    const ids = levels.map(l => l.id);
+    const allSelected = ids.every(id => playlistIds.includes(id));
+    setPlaylistIds(prev =>
+      allSelected ? prev.filter(id => !ids.includes(id)) : [...new Set([...prev, ...ids])]
+    );
+  };
+
+  const startSelection = () => {
+    if (playlistIds.length === 0) return;
+    const chosen = [
+      ...(settings.skipWarmup ? [] : [WARMUP]),
+      ...POOL.filter(l => playlistIds.includes(l.id)),
+    ];
+    sndClick();
+    onStart(chosen);
+  };
+
+  const maxSpeedLabel = { easy:"none", medium:"2x", hard:"3x", impossible:"4x" };
+  const diffSections = [
+    { key:"easy", label:"I - EASY", levels:[WARMUP, ...POOL.filter(l => l.diff === "easy")] },
+    { key:"medium", label:"II - MEDIUM", levels:POOL.filter(l => l.diff === "medium") },
+    { key:"hard", label:"III - HARD", levels:POOL.filter(l => l.diff === "hard") },
+    { key:"impossible", label:"INF - IMPOSSIBLE", levels:POOL.filter(l => l.diff === "impossible") },
+  ];
+  const quickPicks = [
+    { key:"easy", label:"EASY", color:DIFF.easy.color, levels:diffSections[0].levels },
+    { key:"medium", label:"MEDIUM", color:DIFF.medium.color, levels:diffSections[1].levels },
+    { key:"hard", label:"HARD", color:DIFF.hard.color, levels:diffSections[2].levels },
+    { key:"impossible", label:"IMPOSSIBLE", color:DIFF.impossible.color, levels:diffSections[3].levels },
+    { key:"all", label:"ALL", color:"#00ffcc", levels:[WARMUP, ...POOL] },
+  ];
+  const btnBase = {
+    fontFamily:"'Courier New', monospace",
+    cursor:"pointer",
+    transition:"all 0.15s",
+    letterSpacing:3,
+    fontSize:11,
+  };
+
+  return (
+    <div style={{ minHeight:"100vh", display:"flex", flexDirection:"column",
+      alignItems:"center", justifyContent:"center",
+      background:T.bg, fontFamily:"'Courier New', monospace",
+      color:T.fg, textAlign:"center", transition:"background 0.4s", padding:"40px 0" }}>
+
+      <button onClick={()=>{ sndClick(); setShowSettings(true); }}
+        onMouseEnter={sndHover}
+        style={{ position:"fixed", top:16, right:16, background:"transparent",
+          border:"none", cursor:"pointer", color:T.sub, fontSize:18, padding:4 }}>⚙</button>
+
+      {showSettings && <SettingsPanel T={T} settings={settings} setSettings={setSettings} onClose={()=>setShowSettings(false)} />}
+
+      <div style={{ marginBottom:10 }}>
+        <DeadcenterLogo T={T} size={52} />
+      </div>
+      <p style={{ color:T.fg, fontSize:13, letterSpacing:4, margin:"0 0 8px", opacity:0.88, textShadow:"0 0 10px rgba(0,0,0,0.18)" }}>stop the dot on the target</p>
+      <p style={{ color:T.fg, fontSize:9, letterSpacing:3, margin:"0 0 22px", opacity:0.68 }}>
+        click a difficulty for the full set, or click any level row to build your run
+      </p>
+
+      <div style={{ display:"flex", gap:8, flexWrap:"wrap", justifyContent:"center", marginBottom:24, maxWidth:560 }}>
+        {quickPicks.map(pick => {
+          const ids = pick.levels.map(l => l.id);
+          const allSelected = ids.every(id => playlistIds.includes(id));
+          const someSelected = ids.some(id => playlistIds.includes(id));
+          return (
+            <button key={pick.key}
+              onClick={() => { sndClick(); toggleDiff(pick.levels); }}
+              onMouseEnter={sndHover}
+              style={{ ...btnBase,
+                background: allSelected ? `${pick.color}18` : "transparent",
+                border:`1px solid ${allSelected ? pick.color : someSelected ? `${pick.color}88` : T.border}`,
+                color: allSelected ? pick.color : someSelected ? pick.color : T.sub,
+                padding:"10px 14px", minWidth:96 }}>
+              {pick.label}
+            </button>
+          );
+        })}
+      </div>
+
+      <div style={{ width:560, maxWidth:"calc(100vw - 32px)", textAlign:"left", marginBottom:22 }}>
+        {diffSections.map(sec => {
+          const dc = DIFF[sec.key];
+          const secIds = sec.levels.map(l => l.id);
+          const allTicked = secIds.length > 0 && secIds.every(id => playlistIds.includes(id));
+          const someTicked = secIds.some(id => playlistIds.includes(id));
+          return (
+            <div key={sec.key} style={{ marginBottom:18,
+              borderRadius:6,
+              background: someTicked ? `${dc.color}09` : "transparent",
+              border:`1px solid ${someTicked ? `${dc.color}33` : "transparent"}`,
+              transition:"background 0.2s, border-color 0.2s",
+              padding:"0 8px 6px" }}>
+              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between",
+                marginBottom:6, paddingBottom:4,
+                borderBottom:`1px solid ${someTicked ? dc.color + "55" : dc.dim}`,
+                transition:"border-color 0.2s" }}>
+                <div onClick={()=>{ sndClick(); toggleDiff(sec.levels); }}
+                  onMouseEnter={sndHover}
+                  style={{ display:"flex", alignItems:"center", gap:8, cursor:"pointer" }}>
+                  <span style={{ color:dc.color, fontSize:12, opacity:allTicked ? 1 : 0.45, userSelect:"none", lineHeight:1 }}>
+                    {allTicked ? "[x]" : "[ ]"}
+                  </span>
+                  <span style={{ fontSize:10, letterSpacing:4, color:dc.color, opacity:someTicked ? 1 : 0.85 }}>
+                    {sec.label}
+                  </span>
+                  <span style={{ fontSize:8, letterSpacing:2, color:T.fg, opacity:0.56 }}>
+                    click to select all
+                  </span>
+                </div>
+                <span style={{ fontSize:9, letterSpacing:2, color:dc.color, opacity:0.5 }}>
+                  max {maxSpeedLabel[sec.key]}
+                </span>
+              </div>
+
+              {sec.levels.map(lv => {
+                const selected = playlistIds.includes(lv.id);
+                return (
+                  <div key={lv.id} onClick={()=>{ sndClick(); toggleLevel(lv.id); }}
+                    onMouseEnter={sndHover}
+                    style={{ display:"grid", gridTemplateColumns:"18px 160px 1fr",
+                      alignItems:"center", gap:"0 12px",
+                      padding:"7px 0", borderBottom:`1px solid ${T.border}`,
+                      cursor:"pointer",
+                      background:selected ? `${dc.color}11` : "transparent",
+                      transition:"background 0.15s" }}>
+                    <span style={{ color:dc.color, fontSize:10, opacity:selected ? 1 : 0.5 }}>
+                      {selected ? "✓" : (lv.warmup ? "*" : "○")}
+                    </span>
+                    <span style={{ color:selected ? T.fg : T.sub, fontSize:12, letterSpacing:1,
+                      whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis",
+                      transition:"color 0.2s" }}>{lv.label}</span>
+                    <span style={{ color:T.fg, fontSize:10,
+                      opacity:selected ? 0.72 : 0.42,
+                      whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis",
+                      transition:"opacity 0.2s" }}>{lv.hint}</span>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })}
+      </div>
+
+      <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:10 }}>
+        <p style={{ color:T.fg, fontSize:9, letterSpacing:3, margin:0, opacity:0.62 }}>
+          {playlistIds.length === 0 ? "pick a difficulty or click levels above" : `${playlistIds.length} level${playlistIds.length>1?"s":""} selected`}
+        </p>
+        <button onClick={startSelection}
+          disabled={playlistIds.length === 0}
+          style={{ background:playlistIds.length > 0 ? "#00ffcc" : `${T.border}55`, border:"none",
+            color:playlistIds.length > 0 ? "#000" : T.sub,
+            padding:"13px 52px", fontSize:13, letterSpacing:5, textTransform:"uppercase",
+            cursor:playlistIds.length > 0 ? "pointer" : "not-allowed", fontFamily:"'Courier New', monospace",
+            fontWeight:"bold", borderRadius:2, opacity:playlistIds.length > 0 ? 1 : 0.6 }}
+          onMouseEnter={playlistIds.length > 0 ? e=>{ sndHover(); e.currentTarget.style.background="#00e6b8"; } : undefined}
+          onMouseLeave={playlistIds.length > 0 ? e=>e.currentTarget.style.background="#00ffcc" : undefined}>
+          PLAY
+        </button>
+      </div>
+
+      <p style={{ color:T.fg, fontSize:10, letterSpacing:2, marginTop:14, opacity:0.56 }}>
+        {settings.skipWarmup ? "warm up skipped" : "first round is always warm up"}
+      </p>
+
+      <div style={{ position:"fixed", bottom:12, left:"50%", transform:"translateX(-50%)",
+        fontSize:10, letterSpacing:6, color:"#00ffcc", opacity:0.45, pointerEvents:"none" }}>DEADCENTER</div>
+    </div>
+  );
+}
+
 function Menu({ T, onStart, settings, showSettings, setShowSettings, setSettings, sndClick, sndHover }) {
   const [playlistIds, setPlaylistIds] = useState([]);
 

@@ -142,9 +142,27 @@ function playClick(ctx) {
 // Hover sound: subtle softer click
 function playHover(ctx) { playTone(ctx, 600, "sine", 0.03, 0.03); }
 
+function playThreatSelect(ctx, tier = "hard") {
+  if (!ctx) return;
+  const seq = tier === "impossible"
+    ? [[240, "sawtooth", 0.11, 0.08], [180, "square", 0.12, 0.07], [120, "sawtooth", 0.18, 0.06]]
+    : [[320, "square", 0.08, 0.07], [240, "sawtooth", 0.1, 0.06], [180, "triangle", 0.12, 0.05]];
+  seq.forEach(([freq, type, dur, vol], i) => {
+    setTimeout(() => playTone(ctx, freq, type, dur, vol), i * 50);
+  });
+}
+
+function playLaunch(ctx) {
+  if (!ctx) return;
+  [[130, "sawtooth", 0.08, 0.06], [196, "square", 0.1, 0.08], [293, "square", 0.12, 0.09], [440, "sine", 0.18, 0.1]]
+    .forEach(([freq, type, dur, vol], i) => {
+      setTimeout(() => playTone(ctx, freq, type, dur, vol), i * 55);
+    });
+}
+
 // ── HOME SCREEN MUSIC ──────────────────────────────────────────────────────
 // Chiptune-style arpeggiated loop using Web Audio scheduling
-function startMenuMusic(ctx, volume = 0.1) {
+function startMenuMusicLegacy(ctx, volume = 0.1) {
   if (!ctx) return { setVolume() {}, stop() {} };
   const master = ctx.createGain();
   master.gain.value = 0;
@@ -206,10 +224,136 @@ function startMenuMusic(ctx, volume = 0.1) {
       master.gain.cancelScheduledValues(ctx.currentTime);
       master.gain.linearRampToValueAtTime(nextGain, ctx.currentTime + 0.2);
     },
-    stop() {
+    stop(immediate = false) {
       stopped = true;
       timeoutIds.forEach(clearTimeout);
       master.gain.cancelScheduledValues(ctx.currentTime);
+      if (immediate) {
+        master.gain.setValueAtTime(0, ctx.currentTime);
+        try { master.disconnect(); } catch {}
+        return;
+      }
+      master.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.8);
+      setTimeout(() => { try { master.disconnect(); } catch {} }, 1500);
+    }
+  };
+}
+
+function startMenuMusic(ctx, volume = 0.1, intensity = 0) {
+  if (!ctx) return { setVolume() {}, setIntensity() {}, stop() {} };
+  const master = ctx.createGain();
+  const baseGain = ctx.createGain();
+  const accentGain = ctx.createGain();
+  const pulseGain = ctx.createGain();
+  master.gain.value = 0;
+  baseGain.gain.value = 1;
+  accentGain.gain.value = Math.max(0, Math.min(1, intensity));
+  pulseGain.gain.value = Math.max(0, Math.min(1, intensity));
+  baseGain.connect(master);
+  accentGain.connect(master);
+  pulseGain.connect(master);
+  master.connect(ctx.destination);
+
+  const scale = [110, 130.8, 146.8, 165, 195.9, 220, 261.6, 293.6, 330, 392];
+  const melody = [4,6,7,6,4,2,0,2, 4,6,9,8,6,4,2,4];
+  const bpm = 140;
+  const step = 60 / bpm;
+  let stopped = false;
+  let timeoutIds = [];
+  let currentVolume = volume;
+  let currentIntensity = intensity;
+
+  const targetGainFor = (nextVolume, nextIntensity) =>
+    Math.max(0, Math.min(1, nextVolume)) * (0.68 + nextIntensity * 0.18);
+
+  master.gain.linearRampToValueAtTime(targetGainFor(currentVolume, currentIntensity), ctx.currentTime + 1.5);
+
+  const scheduleBar = (barStart) => {
+    if (stopped) return;
+
+    melody.forEach((deg, i) => {
+      const t = barStart + i * step * 0.5;
+      const freq = scale[deg % scale.length];
+
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = "square";
+      o.frequency.value = freq * 2;
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.22, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.001, t + step * 0.45);
+      o.connect(g); g.connect(baseGain);
+      o.start(t); o.stop(t + step * 0.5);
+
+      const ao = ctx.createOscillator();
+      const ag = ctx.createGain();
+      ao.type = "sawtooth";
+      ao.frequency.value = freq * 4;
+      ag.gain.setValueAtTime(0, t);
+      ag.gain.linearRampToValueAtTime(0.018 + currentIntensity * 0.09, t + 0.01);
+      ag.gain.exponentialRampToValueAtTime(0.001, t + step * 0.22);
+      ao.connect(ag); ag.connect(accentGain);
+      ao.start(t); ao.stop(t + step * 0.24);
+    });
+
+    // Extra sync pulse on harder levels to raise urgency without changing the song.
+    [0, 2, 0, 3, 0, 2, 0, 4].forEach((deg, i) => {
+      const t = barStart + i * step;
+      const po = ctx.createOscillator();
+      const pg = ctx.createGain();
+      po.type = "square";
+      po.frequency.value = scale[deg] * 2;
+      pg.gain.setValueAtTime(0, t);
+      pg.gain.linearRampToValueAtTime(currentIntensity * 0.06, t + 0.005);
+      pg.gain.exponentialRampToValueAtTime(0.001, t + step * 0.18);
+      po.connect(pg); pg.connect(pulseGain);
+      po.start(t); po.stop(t + step * 0.2);
+    });
+
+    [0, 0, 2, 0].forEach((deg, i) => {
+      const t = barStart + i * step * 2;
+      const freq = scale[deg];
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = "triangle";
+      o.frequency.value = freq;
+      g.gain.setValueAtTime(0.16 + currentIntensity * 0.08, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + step * 1.8);
+      o.connect(g); g.connect(baseGain);
+      o.start(t); o.stop(t + step * 2);
+    });
+
+    const barLen = melody.length * step * 0.5;
+    const id = setTimeout(() => scheduleBar(barStart + barLen), (barLen - 0.2) * 1000);
+    timeoutIds.push(id);
+  };
+
+  scheduleBar(ctx.currentTime + 0.1);
+
+  return {
+    setVolume(nextVolume) {
+      currentVolume = nextVolume;
+      master.gain.cancelScheduledValues(ctx.currentTime);
+      master.gain.linearRampToValueAtTime(targetGainFor(currentVolume, currentIntensity), ctx.currentTime + 0.2);
+    },
+    setIntensity(nextIntensity) {
+      currentIntensity = Math.max(0, Math.min(1, nextIntensity));
+      accentGain.gain.cancelScheduledValues(ctx.currentTime);
+      accentGain.gain.linearRampToValueAtTime(currentIntensity, ctx.currentTime + 0.35);
+      pulseGain.gain.cancelScheduledValues(ctx.currentTime);
+      pulseGain.gain.linearRampToValueAtTime(currentIntensity, ctx.currentTime + 0.35);
+      master.gain.cancelScheduledValues(ctx.currentTime);
+      master.gain.linearRampToValueAtTime(targetGainFor(currentVolume, currentIntensity), ctx.currentTime + 0.35);
+    },
+    stop(immediate = false) {
+      stopped = true;
+      timeoutIds.forEach(clearTimeout);
+      master.gain.cancelScheduledValues(ctx.currentTime);
+      if (immediate) {
+        master.gain.setValueAtTime(0, ctx.currentTime);
+        try { master.disconnect(); } catch {}
+        return;
+      }
       master.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.8);
       setTimeout(() => { try { master.disconnect(); } catch {} }, 1500);
     }
@@ -230,6 +374,10 @@ export default function App() {
   const musicVol = 0.1;
   const musicPaused = false;
   const [scoreWarmup,  setScoreWarmup]  = useState(false);
+  const currentLevel = levels[lvIdx];
+  const musicIntensity = screen !== "play"
+    ? 0
+    : ({ easy: 0.05, medium: 0.32, hard: 0.78, impossible: 1 }[currentLevel?.diff] ?? 0.22);
 
   const T = settings.day ? LIGHT : DARK;
 
@@ -257,6 +405,7 @@ export default function App() {
   const lvIdxRef      = useRef(0);
   const levelsRef     = useRef([]);
   const audioCtx      = useRef(null);
+  const audioUnlockedRef = useRef(false);
   const mutedRef      = useRef(false);
   const droneStopRef  = useRef(null);
   const musicLoopRef  = useRef(null);
@@ -264,30 +413,53 @@ export default function App() {
 
   mutedRef.current = settings.mute;
 
-  // When mute toggles, pause/resume music tracks too
-  useEffect(() => {
-    if (settings.mute) {
-      if (musicLoopRef.current) {
-        musicLoopRef.current.stop();
-        musicLoopRef.current = null;
-      }
-    } else {
-      if ((screen === "menu" || screen === "play") && !musicPaused && !musicLoopRef.current) {
-        musicLoopRef.current = startMenuMusic(getCtx(), musicVol);
-      }
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings.mute]);
-
   const getCtx = useCallback(() => {
     if (!audioCtx.current) audioCtx.current = makeCtx();
     return audioCtx.current;
   }, []);
 
+  const unlockAudio = useCallback(async () => {
+    const ctx = getCtx();
+    if (!ctx) return null;
+    if (ctx.state === "suspended") {
+      try { await ctx.resume(); } catch {}
+    }
+    audioUnlockedRef.current = ctx.state === "running";
+    if (audioUnlockedRef.current && !mutedRef.current && !musicPaused && (screen === "menu" || screen === "play") && !musicLoopRef.current) {
+      musicLoopRef.current = startMenuMusic(ctx, musicVol, musicIntensity);
+    }
+    return ctx;
+  }, [getCtx, musicIntensity, musicPaused, musicVol, screen]);
+
   const snd = useCallback((fn, ...args) => {
     if (mutedRef.current) return;
-    fn(getCtx(), ...args);
-  }, [getCtx]);
+    const ctx = audioCtx.current;
+    if (!ctx || ctx.state !== "running") return;
+    fn(ctx, ...args);
+  }, []);
+
+  const stopMusicLoop = useCallback((immediate = false) => {
+    if (!musicLoopRef.current) return;
+    musicLoopRef.current.stop(immediate);
+    musicLoopRef.current = null;
+  }, []);
+
+  const ensureMusicLoop = useCallback(() => {
+    if (mutedRef.current || musicPaused || !audioUnlockedRef.current) return;
+    stopMusicLoop(true);
+    musicLoopRef.current = startMenuMusic(getCtx(), musicVol, musicIntensity);
+  }, [getCtx, musicPaused, musicVol, musicIntensity, stopMusicLoop]);
+
+  // When mute toggles, pause/resume music tracks too
+  useEffect(() => {
+    if (settings.mute) {
+      stopMusicLoop(true);
+    } else {
+      if ((screen === "menu" || screen === "play") && !musicPaused && !musicLoopRef.current) {
+        ensureMusicLoop();
+      }
+    }
+  }, [settings.mute, screen, musicPaused, ensureMusicLoop, stopMusicLoop]);
 
   const animate = useCallback(() => {
     const lv = levelsRef.current[lvIdxRef.current];
@@ -507,25 +679,22 @@ export default function App() {
   useEffect(() => {
     const shouldPlayLoop = (screen === "menu" || screen === "play") && !mutedRef.current && !musicPaused;
     if (shouldPlayLoop) {
-      if (!musicLoopRef.current) {
-        musicLoopRef.current = startMenuMusic(getCtx(), musicVol);
+      if (!musicLoopRef.current) ensureMusicLoop();
+      if (musicLoopRef.current) {
+        musicLoopRef.current.setVolume(musicVol);
+        musicLoopRef.current.setIntensity?.(musicIntensity);
       }
-      musicLoopRef.current.setVolume(musicVol);
-    } else if (musicLoopRef.current) {
-      musicLoopRef.current.stop();
-      musicLoopRef.current = null;
+    } else {
+      stopMusicLoop(true);
     }
-  }, [screen, getCtx, musicPaused, musicVol]);
+  }, [screen, musicPaused, musicVol, musicIntensity, ensureMusicLoop, stopMusicLoop]);
 
   useEffect(() => () => {
     cancelAnimationFrame(rafRef.current);
     activeRef.current = false;
     if (droneStopRef.current) droneStopRef.current();
-    if (musicLoopRef.current) {
-      musicLoopRef.current.stop();
-      musicLoopRef.current = null;
-    }
-  }, []);
+    stopMusicLoop(true);
+  }, [stopMusicLoop]);
 
   const startGame = useCallback((countOrLevels, opts = {}) => {
     const chosen = Array.isArray(countOrLevels)
@@ -541,6 +710,16 @@ export default function App() {
     setTimeout(() => startLevel(0), 200);
   }, [settings.skipWarmup, startLevel]);
 
+  useEffect(() => {
+    const onFirstGesture = () => { unlockAudio(); };
+    window.addEventListener("pointerdown", onFirstGesture, { passive: true });
+    window.addEventListener("keydown", onFirstGesture);
+    return () => {
+      window.removeEventListener("pointerdown", onFirstGesture);
+      window.removeEventListener("keydown", onFirstGesture);
+    };
+  }, [unlockAudio]);
+
   const goMenu = useCallback(() => {
     cancelAnimationFrame(rafRef.current);
     activeRef.current = false;
@@ -550,10 +729,12 @@ export default function App() {
 
   // ── GAME SCREEN ──
   if (screen === "menu") return (
-    <LegacyMenu T={T} onStart={startGame} settings={settings} showSettings={showSettings}
+    <LegacyMenu T={T} onStart={startGame} onUnlockAudio={unlockAudio} settings={settings} showSettings={showSettings}
       setShowSettings={setShowSettings} setSettings={setSettings}
       sndClick={() => snd(playClick)}
-      sndHover={() => snd(playHover)} />
+      sndHover={() => snd(playHover)}
+      sndThreat={(tier) => snd(playThreatSelect, tier)}
+      sndLaunch={() => snd(playLaunch)} />
   );
 
   if (screen === "result") return (
@@ -561,7 +742,7 @@ export default function App() {
       onReplay={() => startGame(levels, { countWarmup: scoreWarmup })} onMenu={goMenu} />
   );
 
-  const lv = levels[lvIdx];
+  const lv = currentLevel;
   if (!lv) return null;
   const dc = DIFF[lv.diff];
 
@@ -572,6 +753,7 @@ export default function App() {
       background:T.bg, cursor: playing ? "crosshair" : "default",
       userSelect:"none", fontFamily:"'Courier New', monospace",
       transition:"background 0.4s",
+      padding:"24px 16px",
     }}>
       {/* top bar */}
       <div style={{ position:"fixed", top:0, left:0, right:0, display:"flex", alignItems:"center", padding:"12px 18px" }}>
@@ -606,6 +788,7 @@ export default function App() {
       <p style={{ color:T.fg, fontSize:15, letterSpacing:3, textTransform:"uppercase", marginBottom:4, opacity:0.9 }}>
         {lv.warmup ? "warm up" : lv.label}
       </p>
+      <div style={{ marginBottom:18, height:1, width:120, background:`linear-gradient(90deg, transparent, ${dc.color}99, transparent)` }} />
 
       {/* level renderer */}
       {(lv.type==="h"||lv.type==="chaos"||lv.type==="blind"||lv.type==="ghost"||lv.type==="sway") && (
@@ -1073,7 +1256,7 @@ function LegacyMenuOld({ T, onStart, settings, showSettings, setShowSettings, se
 }
 
 // ─── RESULT ──────────────────────────────────────────────────────────────────
-function LegacyMenu({ T, onStart, settings, showSettings, setShowSettings, setSettings, sndClick, sndHover }) {
+function LegacyMenu({ T, onStart, onUnlockAudio, settings, showSettings, setShowSettings, setSettings, sndClick, sndHover, sndThreat, sndLaunch }) {
   const [playlistIds, setPlaylistIds] = useState([]);
 
   const toggleLevel = (id) => {
@@ -1088,14 +1271,30 @@ function LegacyMenu({ T, onStart, settings, showSettings, setShowSettings, setSe
     );
   };
 
-  const startSelection = () => {
+  const startSelection = async () => {
     if (playlistIds.length === 0) return;
+    await onUnlockAudio?.();
     const chosen = [
       ...(settings.skipWarmup ? [] : [WARMUP]),
       ...POOL.filter(l => playlistIds.includes(l.id)),
     ];
-    sndClick();
+    const pickedLevels = POOL.filter(l => playlistIds.includes(l.id));
+    const allImpossibleRun = pickedLevels.length > 0 && pickedLevels.every(l => l.diff === "impossible");
+    if (allImpossibleRun) sndLaunch();
+    else sndClick();
     onStart(chosen);
+  };
+
+  const playSelectSound = (levels) => {
+    if (levels.some(l => l.diff === "impossible")) {
+      sndThreat("impossible");
+      return;
+    }
+    if (levels.some(l => l.diff === "hard")) {
+      sndThreat("hard");
+      return;
+    }
+    sndClick();
   };
 
   const maxSpeedLabel = { easy:"none", medium:"2x", hard:"3x", impossible:"4x" };
@@ -1126,7 +1325,7 @@ function LegacyMenu({ T, onStart, settings, showSettings, setShowSettings, setSe
       background:T.bg, fontFamily:"'Courier New', monospace",
       color:T.fg, textAlign:"center", transition:"background 0.4s", padding:"40px 0" }}>
 
-      <button onClick={()=>{ sndClick(); setShowSettings(true); }}
+      <button onClick={async ()=>{ await onUnlockAudio?.(); sndClick(); setShowSettings(true); }}
         onMouseEnter={sndHover}
         style={{ position:"fixed", top:16, right:16, background:"transparent",
           border:"none", cursor:"pointer", color:T.sub, fontSize:18, padding:4 }}>⚙</button>
@@ -1148,13 +1347,16 @@ function LegacyMenu({ T, onStart, settings, showSettings, setShowSettings, setSe
           const someSelected = ids.some(id => playlistIds.includes(id));
           return (
             <button key={pick.key}
-              onClick={() => { sndClick(); toggleDiff(pick.levels); }}
+              onClick={async () => { await onUnlockAudio?.(); playSelectSound(pick.levels); toggleDiff(pick.levels); }}
               onMouseEnter={sndHover}
               style={{ ...btnBase,
                 background: allSelected ? `${pick.color}18` : "transparent",
                 border:`1px solid ${allSelected ? pick.color : someSelected ? `${pick.color}88` : T.border}`,
                 color: allSelected ? pick.color : someSelected ? pick.color : T.sub,
-                padding:"10px 14px", minWidth:96 }}>
+                padding:"10px 14px", minWidth:96,
+                borderRadius:4,
+                transform: allSelected ? "translateY(-1px)" : "translateY(0)",
+                boxShadow: allSelected ? `0 8px 20px ${pick.color}15` : "none" }}>
               {pick.label}
             </button>
           );
@@ -1178,7 +1380,7 @@ function LegacyMenu({ T, onStart, settings, showSettings, setShowSettings, setSe
                 marginBottom:6, paddingBottom:4,
                 borderBottom:`1px solid ${someTicked ? dc.color + "55" : dc.dim}`,
                 transition:"border-color 0.2s" }}>
-                <div onClick={()=>{ sndClick(); toggleDiff(sec.levels); }}
+                <div onClick={async ()=>{ await onUnlockAudio?.(); playSelectSound(sec.levels); toggleDiff(sec.levels); }}
                   onMouseEnter={sndHover}
                   style={{ display:"flex", alignItems:"center", gap:8, cursor:"pointer" }}>
                   <span style={{ color:dc.color, fontSize:12, opacity:allTicked ? 1 : 0.45, userSelect:"none", lineHeight:1 }}>
@@ -1199,14 +1401,15 @@ function LegacyMenu({ T, onStart, settings, showSettings, setShowSettings, setSe
               {sec.levels.map(lv => {
                 const selected = playlistIds.includes(lv.id);
                 return (
-                  <div key={lv.id} onClick={()=>{ sndClick(); toggleLevel(lv.id); }}
+                  <div key={lv.id} onClick={async ()=>{ await onUnlockAudio?.(); playSelectSound([lv]); toggleLevel(lv.id); }}
                     onMouseEnter={sndHover}
                     style={{ display:"grid", gridTemplateColumns:"18px 160px 1fr",
                       alignItems:"center", gap:"0 12px",
                       padding:"7px 0", borderBottom:`1px solid ${T.border}`,
                       cursor:"pointer",
                       background:selected ? `${dc.color}11` : "transparent",
-                      transition:"background 0.15s" }}>
+                      transition:"background 0.15s, transform 0.15s",
+                      transform:selected ? "translateX(2px)" : "translateX(0)" }}>
                     <span style={{ color:dc.color, fontSize:10, opacity:selected ? 1 : 0.5 }}>
                       {selected ? "✓" : (lv.warmup ? "*" : "○")}
                     </span>
@@ -1235,9 +1438,11 @@ function LegacyMenu({ T, onStart, settings, showSettings, setShowSettings, setSe
             color:playlistIds.length > 0 ? "#000" : T.sub,
             padding:"13px 52px", fontSize:13, letterSpacing:5, textTransform:"uppercase",
             cursor:playlistIds.length > 0 ? "pointer" : "not-allowed", fontFamily:"'Courier New', monospace",
-            fontWeight:"bold", borderRadius:2, opacity:playlistIds.length > 0 ? 1 : 0.6 }}
-          onMouseEnter={playlistIds.length > 0 ? e=>{ sndHover(); e.currentTarget.style.background="#00e6b8"; } : undefined}
-          onMouseLeave={playlistIds.length > 0 ? e=>e.currentTarget.style.background="#00ffcc" : undefined}>
+            fontWeight:"bold", borderRadius:2, opacity:playlistIds.length > 0 ? 1 : 0.6,
+            transition:"background 0.15s, transform 0.15s, box-shadow 0.15s",
+            boxShadow:playlistIds.length > 0 ? "0 10px 24px rgba(0,255,204,0.12)" : "none" }}
+          onMouseEnter={playlistIds.length > 0 ? e=>{ sndHover(); e.currentTarget.style.background="#00e6b8"; e.currentTarget.style.transform="translateY(-1px)"; } : undefined}
+          onMouseLeave={playlistIds.length > 0 ? e=>{ e.currentTarget.style.background="#00ffcc"; e.currentTarget.style.transform="translateY(0)"; } : undefined}>
           PLAY
         </button>
       </div>
@@ -1550,15 +1755,36 @@ function Result({ T, scores, levels, scoreWarmup, onReplay, onMenu }) {
       <div style={{ fontSize:112, fontWeight:"bold", color, lineHeight:1, letterSpacing:-6 }}>{avg}</div>
       <div style={{ fontSize:16, letterSpacing:7, color, marginTop:14, marginBottom:36, textTransform:"uppercase" }}>{label}</div>
 
-      <div style={{ display:"flex", gap:20, flexWrap:"wrap", justifyContent:"center", marginBottom:36, maxWidth:480 }}>
+      <div style={{ display:"flex", gap:16, flexWrap:"wrap", justifyContent:"center", marginBottom:36, maxWidth:760 }}>
         {scores.map((s,i) => {
           const lv = levels[i];
           const dc = lv ? DIFF[lv.diff] : DIFF.easy;
           const excluded = !scoreWarmup && lv?.warmup;
           return (
-            <div key={i} style={{ textAlign:"center", minWidth:48, opacity: excluded ? 0.3 : 1, transition:"opacity 0.2s" }}>
-              <div style={{ color:dc.color, fontSize:9, letterSpacing:1, marginBottom:4, opacity:0.7 }}>
-                {lv?.label?.slice(0,6).toUpperCase() ?? `L${i+1}`}
+            <div key={i} style={{
+              textAlign:"center",
+              width:112,
+              minHeight:88,
+              opacity: excluded ? 0.3 : 1,
+              transition:"opacity 0.2s, transform 0.2s",
+              padding:"8px 6px",
+              border:`1px solid ${excluded ? T.border : `${dc.color}22`}`,
+              borderRadius:8,
+              background: excluded ? "transparent" : `${dc.color}08`,
+            }}>
+              <div style={{
+                color:dc.color,
+                fontSize:9,
+                letterSpacing:1,
+                marginBottom:6,
+                opacity:0.82,
+                lineHeight:1.35,
+                minHeight:24,
+                whiteSpace:"normal",
+                wordBreak:"break-word",
+                textTransform:"uppercase",
+              }}>
+                {lv?.label ?? `L${i+1}`}
               </div>
               <div style={{ fontSize:26, color: excluded ? T.sub : s>=80?"#00ffcc":s>=55?"#f59e0b":"#ef4444" }}>{s}</div>
               {excluded && <div style={{ fontSize:7, letterSpacing:1, color:T.sub, opacity:0.6, marginTop:2 }}>not scored</div>}
@@ -1572,11 +1798,11 @@ function Result({ T, scores, levels, scoreWarmup, onReplay, onMenu }) {
       <div style={{ display:"flex", gap:10 }}>
         {[["retry",onReplay],["menu",onMenu]].map(([lbl,fn])=>(
           <button key={lbl} onClick={fn}
-            onMouseEnter={e=>{e.currentTarget.style.borderColor="#00ffcc";e.currentTarget.style.color="#00ffcc";}}
-            onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.color=T.sub;}}
+            onMouseEnter={e=>{e.currentTarget.style.borderColor="#00ffcc";e.currentTarget.style.color="#00ffcc";e.currentTarget.style.transform="translateY(-1px)";}}
+            onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.color=T.sub;e.currentTarget.style.transform="translateY(0)";}}
             style={{ background:"transparent", border:`1px solid ${T.border}`, color:T.sub,
               padding:"10px 32px", fontSize:12, letterSpacing:4, textTransform:"uppercase",
-              cursor:"pointer", fontFamily:"'Courier New', monospace", transition:"border-color 0.2s, color 0.2s" }}>
+              cursor:"pointer", fontFamily:"'Courier New', monospace", transition:"border-color 0.2s, color 0.2s, transform 0.2s" }}>
             {lbl}
           </button>
         ))}

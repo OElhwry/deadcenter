@@ -16,39 +16,58 @@ const DIFF = {
 
 // ─── LEVEL DEFINITIONS ───────────────────────────────────────────────────────
 // types: h, diag, circle, 2d, chaos, blind, movingtarget, ghost, vortex,
-// sway, countercircle, eclipse, phasecircle
+// sway, countercircle, eclipse, phasecircle, swaymt, ghost2d, overload, vdrop
 const WARMUP = { id: 0, label: "warm up", type: "h", speed: 2.8, diff: "easy",
   hint: "stop on the circle", warmup: true };
 
 const POOL = [
-  { id:1,  label: "steady",        type: "h",           speed: 6.5,  diff: "easy",
+  // ── EASY (5 levels) ──
+  { id:1,  label: "steady",        type: "h",           speed: 6.5,   diff: "easy",
     hint: "center — a little faster" },
-  { id:2,  label: "diagonal",      type: "diag",        speed: 0.9,  diff: "medium",
-    hint: "gravity builds — momentum hurts you" },
-  { id:3,  label: "orbit",         type: "circle",      speed: 0.042,diff: "medium",
-    hint: "momentum builds — stop at 12 o'clock" },
-  { id:4,  label: "2d bounce",     type: "2d",          speed: 4.5,  diff: "medium",
-    hint: "random path, gains speed — hit the bullseye" },
-  { id:5,  label: "chaos",         type: "chaos",       speed: 7,    diff: "hard",
-    hint: "direction snaps randomly — speed compounds" },
-  { id:6,  label: "crossfire",     type: "movingtarget",speed: 14,   diff: "hard",
-    precision: true, hint: "tiny moving target — track and stop" },
-  { id:7,  label: "blind",         type: "blind",       speed: 8,    diff: "hard",
-    hint: "gone in the dark — feel the rhythm" },
-  { id:8,  label: "moving target", type: "movingtarget",speed: 9,    diff: "hard",
-    hint: "the target drifts — read its path" },
-  { id:9,  label: "ghost",         type: "ghost",       speed: 11,   diff: "impossible",
-    hint: "fully invisible — trust instinct" },
-  { id:10, label: "vortex",        type: "vortex",      speed: 0.052,diff: "impossible",
-    hint: "spiral orbit + rotating target" },
-  { id:11, label: "sway",          type: "sway",        speed: 0.05, diff: "easy",
+  { id:11, label: "sway",          type: "sway",        speed: 0.05,  diff: "easy",
     hint: "smooth sine drift — release at center" },
+  { id:15, label: "float",         type: "circle",      speed: 0.018, diff: "easy",
+    hint: "slow orbit — stop at 12 o'clock" },
+  { id:16, label: "cruise",        type: "2d",          speed: 1.5,   diff: "easy",
+    hint: "slow bounce — hit the bullseye" },
+  { id:17, label: "drop",          type: "vdrop",       speed: 0.20,  diff: "easy",
+    hint: "straight fall — stop at the bottom" },
+
+  // ── MEDIUM (5 levels) ──
+  { id:2,  label: "diagonal",      type: "diag",        speed: 0.9,   diff: "medium",
+    hint: "gravity builds — momentum hurts you" },
+  { id:3,  label: "orbit",         type: "circle",      speed: 0.042, diff: "medium",
+    hint: "momentum builds — stop at 12 o'clock" },
+  { id:4,  label: "2d bounce",     type: "2d",          speed: 4.5,   diff: "medium",
+    hint: "random path, gains speed — hit the bullseye" },
   { id:12, label: "counter orbit", type: "countercircle", speed: 0.038, diff: "medium",
     hint: "the target loops back — meet it at the top" },
-  { id:13, label: "eclipse",       type: "eclipse",     speed: 10.5, diff: "hard",
+  { id:18, label: "ripple",        type: "swaymt",      speed: 0.05,  diff: "medium",
+    hint: "both drift — find the overlap" },
+
+  // ── HARD (5 levels) ──
+  { id:5,  label: "chaos",         type: "chaos",       speed: 7,     diff: "hard",
+    hint: "direction snaps randomly — speed compounds" },
+  { id:6,  label: "crossfire",     type: "movingtarget",speed: 14,    diff: "hard",
+    precision: true, hint: "tiny moving target — track and stop" },
+  { id:7,  label: "blind",         type: "blind",       speed: 8,     diff: "hard",
+    hint: "gone in the dark — feel the rhythm" },
+  { id:8,  label: "moving target", type: "movingtarget",speed: 9,     diff: "hard",
+    hint: "the target drifts — read its path" },
+  { id:13, label: "eclipse",       type: "eclipse",     speed: 10.5,  diff: "hard",
     hint: "the target drifts while the dot blinks" },
+
+  // ── IMPOSSIBLE (5 levels) ──
+  { id:9,  label: "ghost",         type: "ghost",       speed: 11,    diff: "impossible",
+    hint: "fully invisible — trust instinct" },
+  { id:10, label: "vortex",        type: "vortex",      speed: 0.052, diff: "impossible",
+    hint: "spiral orbit + rotating target" },
   { id:14, label: "phase orbit",   type: "phasecircle", speed: 0.056, diff: "impossible",
     hint: "phasing orbit + live target — commit on instinct" },
+  { id:19, label: "abyss",         type: "ghost2d",     speed: 6.0,   diff: "impossible",
+    hint: "invisible in 2d — aim blind" },
+  { id:20, label: "collapse",      type: "overload",    speed: 12,    diff: "impossible",
+    precision: true, hint: "chaos overloaded — precision on instinct" },
 ];
 
 function pickLevels(count, skipWarmup) {
@@ -533,6 +552,14 @@ export default function App() {
       if (t >= SQ - DOT) { diagSpRef.current = 0.9; t = 0; }
       posRef.current = { ...p, x:t, y:t, t };
 
+    } else if (lv.type === "vdrop") {
+      // straight vertical drop — x locked to center, gravity builds gently (no momentum for easy)
+      let t = p.t + diagSpRef.current;
+      diagSpRef.current = Math.min(diagSpRef.current + 0.06, 18);
+      if (t >= SQ - DOT) { diagSpRef.current = lv.speed; t = 0; }
+      const x = SQ / 2 - DOT / 2;
+      posRef.current = { ...p, x, y: t, t };
+
     } else if (lv.type === "circle") {
       let angle = p.angle + spd;
       if (angle > Math.PI) angle -= 2 * Math.PI;
@@ -608,6 +635,58 @@ export default function App() {
       const ta = (vortexTargAngleRef.current - 0.014 + 2*Math.PI) % (2*Math.PI);
       vortexTargAngleRef.current = ta;
       setVortexTargAngleDraw(ta);
+
+    } else if (lv.type === "swaymt") {
+      // dot sways sinusoidally; target sways at a different rate + amplitude
+      const t = p.t + spd;
+      const amp = BAR_W / 2 - DOT / 2 - 10;
+      const x = CX + amp * Math.sin(t);
+      // target uses a separate phase stored in vortexTargAngleRef, fixed rate (no momentum)
+      const tPhase = (vortexTargAngleRef.current + 0.031 + 2 * Math.PI) % (2 * Math.PI);
+      vortexTargAngleRef.current = tPhase;
+      const tAmp = BAR_W / 2 - DOT / 2 - 30;
+      const tx = CX + tAmp * Math.sin(tPhase);
+      targetXRef.current = tx;
+      posRef.current = { ...p, t, x };
+      setTargetXDraw(tx);
+
+    } else if (lv.type === "ghost2d") {
+      // 2D bounce but nearly invisible — same physics as 2d, ghost-level blink (4 on / 60 off)
+      let { vx, vy } = vel2dRef.current;
+      let x = p.x + vx * spd;
+      let y = p.y + vy * spd;
+      if (x >= SQ-DOT) { vx = -Math.abs(vx); x = SQ-DOT; }
+      if (x <= 0)       { vx =  Math.abs(vx); x = 0; }
+      if (y >= SQ-DOT) { vy = -Math.abs(vy); y = SQ-DOT; }
+      if (y <= 0)       { vy =  Math.abs(vy); y = 0; }
+      vel2dRef.current = { vx, vy };
+      posRef.current = { ...p, x, y };
+      blindTimerRef.current--;
+      if (blindTimerRef.current <= 0) {
+        const v = !blindVisRef.current;
+        blindVisRef.current = v;
+        blindTimerRef.current = v ? 4 : 60;
+        setBlindVis(v);
+      }
+
+    } else if (lv.type === "overload") {
+      // extreme chaos: snaps every 2–6 frames, speed 12–25 px/frame + precision moving target
+      chaosTimerRef.current--;
+      if (chaosTimerRef.current <= 0) {
+        chaosDirRef.current  = Math.random() < 0.5 ? 1 : -1;
+        chaosSpRef.current   = 12 + Math.random() * 13;
+        chaosTimerRef.current = 2 + Math.floor(Math.random() * 5);
+      }
+      let x = p.x + chaosSpRef.current * momentumRef.current * chaosDirRef.current;
+      if (x >= BAR_W-DOT) { chaosDirRef.current=-1; x=BAR_W-DOT; }
+      if (x <= 0)          { chaosDirRef.current= 1; x=0; }
+      posRef.current = { ...p, x };
+      const tSpeed = 4.5;
+      let tx = targetXRef.current + tSpeed * targetDirRef.current;
+      if (tx >= BAR_W - 30) { targetDirRef.current=-1; tx=BAR_W-30; }
+      if (tx <= 20)          { targetDirRef.current= 1; tx=20; }
+      targetXRef.current = tx;
+      setTargetXDraw(tx);
     }
 
     setPosDraw({ ...posRef.current });
@@ -618,6 +697,7 @@ export default function App() {
     posRef.current      = { x:0, y:0, t:0, angle:-Math.PI/2, x2:BAR_W-DOT, vortAngle:0 };
     dirHRef.current     = 1;
     diagSpRef.current   = 0.9; chaosSpRef.current=7; chaosDirRef.current=1; chaosTimerRef.current=30;
+    if (levelsRef.current[idx]?.type === "vdrop") diagSpRef.current = levelsRef.current[idx].speed;
     momentumRef.current = 1.0; setMomentumDraw(1.0);
     // random starting angle for 2d bounce — avoids purely axis-aligned paths
     const ang = Math.random() * Math.PI * 2;
@@ -653,6 +733,10 @@ export default function App() {
     if (type==="countercircle"||type==="phasecircle") sc=scoreCircle(pos.angle, vortexTargAngleRef.current);
     if (type==="2d")     sc=score2D(pos.x, pos.y);
     if (type==="vortex") sc=scoreCircle(pos.angle, vortexTargAngleRef.current);
+    if (type==="vdrop")   sc=scoreDiag(pos.t);
+    if (type==="swaymt")  sc=scoreH(pos.x, false, targetXRef.current);
+    if (type==="ghost2d") sc=score2D(pos.x, pos.y);
+    if (type==="overload") sc=scoreH(pos.x, true, targetXRef.current);
 
     snd(playScore, sc);
     setLastScore(sc);
@@ -797,13 +881,23 @@ export default function App() {
       {(lv.type==="movingtarget" || lv.type==="eclipse") && (
         <HBar pos={posDraw} playing={playing} lv={lv} T={T} blindVis={lv.type==="eclipse" ? blindVis : true} targetX={targetXDraw} moving />
       )}
-      {lv.type==="diag"   && <DiagBox     pos={posDraw} playing={playing} T={T} />}
+      {lv.type==="diag"   && <DiagBox      pos={posDraw} playing={playing} T={T} />}
+      {lv.type==="vdrop"  && <VDropBox     pos={posDraw} playing={playing} T={T} />}
       {lv.type==="circle" && <CircleBox   pos={posDraw} playing={playing} T={T} />}
       {(lv.type==="countercircle" || lv.type==="phasecircle") && (
         <CircleBox pos={posDraw} playing={playing} T={T} targetAngle={vortexTargAngleDraw} blindVis={lv.type==="phasecircle" ? blindVis : true} />
       )}
       {lv.type==="2d"     && <Box2D       pos={posDraw} playing={playing} T={T} />}
       {lv.type==="vortex" && <VortexBox   pos={posDraw} playing={playing} T={T} targetAngle={vortexTargAngleDraw} />}
+      {lv.type==="swaymt" && (
+        <HBar pos={posDraw} playing={playing} lv={lv} T={T} blindVis={true} targetX={targetXDraw} moving />
+      )}
+      {lv.type==="ghost2d" && (
+        <Box2D pos={posDraw} playing={playing} T={T} blindVis={blindVis} />
+      )}
+      {lv.type==="overload" && (
+        <HBar pos={posDraw} playing={playing} lv={lv} T={T} blindVis={true} targetX={targetXDraw} moving />
+      )}
 
       {/* score / hint */}
       <div style={{ marginTop:28, height:52, display:"flex", alignItems:"center", justifyContent:"center" }}>
@@ -908,6 +1002,26 @@ function DiagBox({ pos, playing, T }) {
   );
 }
 
+function VDropBox({ pos, playing, T }) {
+  const cx = SQ / 2;
+  const ty = SQ - DOT / 2; // target center y (bottom)
+  return (
+    <svg width={SQ} height={SQ} style={{ display:"block" }}>
+      <circle cx={cx} cy={SQ/2} r={SQ/2-3} fill="none" stroke={T.border} strokeWidth="1" strokeDasharray="2 8" />
+      <line x1={cx} y1={DOT/2} x2={cx} y2={ty} stroke={T.track} strokeWidth="2" strokeDasharray="6 5" />
+      <circle cx={cx} cy={DOT/2} r={3} fill={T.border} />
+      {/* target ring at bottom */}
+      <circle cx={cx} cy={ty} r={14} fill="none" stroke={T.fg} strokeWidth="1.5" opacity="0.4" />
+      <circle cx={cx} cy={ty} r={6}  fill="none" stroke={T.fg} strokeWidth="1"   opacity="0.25" />
+      <circle cx={cx} cy={ty} r={2}  fill={T.fg} opacity="0.6" />
+      {/* dot */}
+      <circle cx={pos.x+DOT/2} cy={pos.y+DOT/2} r={DOT/2}
+        fill={playing?"#00ffcc":T.sub}
+        style={{ filter:playing?"drop-shadow(0 0 5px #00ffcc)":"none", transition:"fill 0.2s" }} />
+    </svg>
+  );
+}
+
 function CircleBox({ pos, playing, T, targetAngle = -Math.PI / 2, blindVis = true }) {
   const cx=SQ/2, cy=SQ/2, r=SQ/2-DOT-2;
   const tx=cx + r*Math.cos(targetAngle), ty=cy + r*Math.sin(targetAngle);
@@ -934,7 +1048,7 @@ function CircleBox({ pos, playing, T, targetAngle = -Math.PI / 2, blindVis = tru
   );
 }
 
-function Box2D({ pos, playing, T }) {
+function Box2D({ pos, playing, T, blindVis = true }) {
   const cx=SQ/2, cy=SQ/2;
   return (
     <svg width={SQ} height={SQ} style={{ display:"block" }}>
@@ -947,7 +1061,8 @@ function Box2D({ pos, playing, T }) {
       <circle cx={cx} cy={cy} r={2}  fill={T.fg} opacity="0.55" />
       <circle cx={pos.x+DOT/2} cy={pos.y+DOT/2} r={DOT/2}
         fill={playing?"#00ffcc":T.sub}
-        style={{ filter:playing?"drop-shadow(0 0 6px #00ffcc)":"none", transition:"fill 0.2s" }} />
+        opacity={blindVis ? 1 : 0}
+        style={{ filter:playing && blindVis?"drop-shadow(0 0 6px #00ffcc)":"none", transition:"fill 0.2s, opacity 0.2s" }} />
     </svg>
   );
 }
@@ -1285,6 +1400,16 @@ function LegacyMenu({ T, onStart, onUnlockAudio, settings, showSettings, setShow
     onStart(chosen);
   };
 
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.code !== "Space" || playlistIds.length === 0) return;
+      e.preventDefault();
+      startSelection();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [playlistIds, startSelection]);
+
   const playSelectSound = (levels) => {
     if (levels.some(l => l.diff === "impossible")) {
       sndThreat("impossible");
@@ -1344,15 +1469,14 @@ function LegacyMenu({ T, onStart, onUnlockAudio, settings, showSettings, setShow
         {quickPicks.map(pick => {
           const ids = pick.levels.map(l => l.id);
           const allSelected = ids.every(id => playlistIds.includes(id));
-          const someSelected = ids.some(id => playlistIds.includes(id));
           return (
             <button key={pick.key}
               onClick={async () => { await onUnlockAudio?.(); playSelectSound(pick.levels); toggleDiff(pick.levels); }}
               onMouseEnter={sndHover}
               style={{ ...btnBase,
                 background: allSelected ? `${pick.color}18` : "transparent",
-                border:`1px solid ${allSelected ? pick.color : someSelected ? `${pick.color}88` : T.border}`,
-                color: allSelected ? pick.color : someSelected ? pick.color : T.sub,
+                border:`1px solid ${allSelected ? pick.color : T.border}`,
+                color: allSelected ? pick.color : T.sub,
                 padding:"10px 14px", minWidth:96,
                 borderRadius:4,
                 transform: allSelected ? "translateY(-1px)" : "translateY(0)",
@@ -1368,17 +1492,16 @@ function LegacyMenu({ T, onStart, onUnlockAudio, settings, showSettings, setShow
           const dc = DIFF[sec.key];
           const secIds = sec.levels.map(l => l.id);
           const allTicked = secIds.length > 0 && secIds.every(id => playlistIds.includes(id));
-          const someTicked = secIds.some(id => playlistIds.includes(id));
           return (
             <div key={sec.key} style={{ marginBottom:18,
               borderRadius:6,
-              background: someTicked ? `${dc.color}09` : "transparent",
-              border:`1px solid ${someTicked ? `${dc.color}33` : "transparent"}`,
+              background: allTicked ? `${dc.color}09` : "transparent",
+              border:`1px solid ${allTicked ? `${dc.color}33` : "transparent"}`,
               transition:"background 0.2s, border-color 0.2s",
               padding:"0 8px 6px" }}>
               <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between",
                 marginBottom:6, paddingBottom:4,
-                borderBottom:`1px solid ${someTicked ? dc.color + "55" : dc.dim}`,
+                borderBottom:`1px solid ${allTicked ? dc.color + "55" : dc.dim}`,
                 transition:"border-color 0.2s" }}>
                 <div onClick={async ()=>{ await onUnlockAudio?.(); playSelectSound(sec.levels); toggleDiff(sec.levels); }}
                   onMouseEnter={sndHover}
@@ -1386,7 +1509,7 @@ function LegacyMenu({ T, onStart, onUnlockAudio, settings, showSettings, setShow
                   <span style={{ color:dc.color, fontSize:12, opacity:allTicked ? 1 : 0.45, userSelect:"none", lineHeight:1 }}>
                     {allTicked ? "[x]" : "[ ]"}
                   </span>
-                  <span style={{ fontSize:10, letterSpacing:4, color:dc.color, opacity:someTicked ? 1 : 0.85 }}>
+                  <span style={{ fontSize:10, letterSpacing:4, color:dc.color, opacity:0.85 }}>
                     {sec.label}
                   </span>
                   <span style={{ fontSize:8, letterSpacing:2, color:T.fg, opacity:0.56 }}>
@@ -1633,18 +1756,17 @@ function Menu({ T, onStart, settings, showSettings, setShowSettings, setSettings
           const dc = DIFF[sec.key];
           const secIds = sec.levels.map(l => l.id);
           const allTicked = secIds.length > 0 && secIds.every(id => playlistIds.includes(id));
-          const someTicked = secIds.some(id => playlistIds.includes(id));
           return (
             <div key={sec.key} style={{ marginBottom:18,
               borderRadius:16,
               background:`linear-gradient(180deg, ${T.card} 0%, ${T.bg} 100%)`,
-              border:`1px solid ${someTicked ? `${dc.color}55` : T.border}`,
-              boxShadow: someTicked ? `0 12px 30px ${dc.color}10` : "none",
+              border:`1px solid ${allTicked ? `${dc.color}55` : T.border}`,
+              boxShadow: allTicked ? `0 12px 30px ${dc.color}10` : "none",
               transition:"border-color 0.2s, box-shadow 0.2s",
               padding:"14px 16px 8px" }}>
               <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between",
                 marginBottom:10, paddingBottom:10,
-                borderBottom:`1px solid ${someTicked ? dc.color + "40" : dc.dim}`,
+                borderBottom:`1px solid ${allTicked ? dc.color + "40" : dc.dim}`,
                 transition:"border-color 0.2s" }}>
                 <button
                   onClick={()=>{ sndClick(); toggleDiff(sec.levels); }}

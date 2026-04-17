@@ -837,15 +837,22 @@ export default function App() {
       background:T.bg, cursor: playing ? "crosshair" : "default",
       userSelect:"none", fontFamily:"'Courier New', monospace",
       transition:"background 0.4s",
-      padding:"24px 16px",
+      padding:"72px 16px 32px",
+      touchAction:"manipulation",
     }}>
       {/* top bar */}
-      <div style={{ position:"fixed", top:0, left:0, right:0, display:"flex", alignItems:"center", padding:"12px 18px" }}>
+      <div style={{
+        position:"fixed", top:0, left:0, right:0,
+        display:"flex", alignItems:"center", padding:"6px 10px",
+        background:`${T.bg}ee`, backdropFilter:"blur(8px)",
+        WebkitBackdropFilter:"blur(8px)", zIndex:10,
+        borderBottom:`1px solid ${T.border}`,
+      }}>
         {/* back arrow */}
         <button onClick={e => { e.stopPropagation(); goMenu(); }}
           style={{ background:"none", border:`1px solid ${T.border}`, color:T.sub, cursor:"pointer",
-            fontSize:14, lineHeight:1, padding:"4px 10px", borderRadius:4,
-            fontFamily:"'Courier New', monospace", opacity:0.65,
+            fontSize:13, lineHeight:1, padding:"10px 14px", borderRadius:4,
+            fontFamily:"'Courier New', monospace", opacity:0.65, minHeight:44,
             transition:"opacity 0.15s, color 0.15s, border-color 0.15s" }}
           onMouseEnter={e=>{ e.currentTarget.style.opacity="1"; e.currentTarget.style.color="#00ffcc"; e.currentTarget.style.borderColor="#00ffcc"; }}
           onMouseLeave={e=>{ e.currentTarget.style.opacity="0.65"; e.currentTarget.style.color=T.sub; e.currentTarget.style.borderColor=T.border; }}>
@@ -876,10 +883,10 @@ export default function App() {
 
       {/* level renderer */}
       {(lv.type==="h"||lv.type==="chaos"||lv.type==="blind"||lv.type==="ghost"||lv.type==="sway") && (
-        <HBar pos={posDraw} playing={playing} lv={lv} T={T} blindVis={blindVis} targetX={CX} />
+        <ScaledHBar pos={posDraw} playing={playing} lv={lv} T={T} blindVis={blindVis} targetX={CX} />
       )}
       {(lv.type==="movingtarget" || lv.type==="eclipse") && (
-        <HBar pos={posDraw} playing={playing} lv={lv} T={T} blindVis={lv.type==="eclipse" ? blindVis : true} targetX={targetXDraw} moving />
+        <ScaledHBar pos={posDraw} playing={playing} lv={lv} T={T} blindVis={lv.type==="eclipse" ? blindVis : true} targetX={targetXDraw} moving />
       )}
       {lv.type==="diag"   && <DiagBox      pos={posDraw} playing={playing} T={T} />}
       {lv.type==="vdrop"  && <VDropBox     pos={posDraw} playing={playing} T={T} />}
@@ -890,13 +897,13 @@ export default function App() {
       {lv.type==="2d"     && <Box2D       pos={posDraw} playing={playing} T={T} />}
       {lv.type==="vortex" && <VortexBox   pos={posDraw} playing={playing} T={T} targetAngle={vortexTargAngleDraw} />}
       {lv.type==="swaymt" && (
-        <HBar pos={posDraw} playing={playing} lv={lv} T={T} blindVis={true} targetX={targetXDraw} moving />
+        <ScaledHBar pos={posDraw} playing={playing} lv={lv} T={T} blindVis={true} targetX={targetXDraw} moving />
       )}
       {lv.type==="ghost2d" && (
         <Box2D pos={posDraw} playing={playing} T={T} blindVis={blindVis} />
       )}
       {lv.type==="overload" && (
-        <HBar pos={posDraw} playing={playing} lv={lv} T={T} blindVis={true} targetX={targetXDraw} moving />
+        <ScaledHBar pos={posDraw} playing={playing} lv={lv} T={T} blindVis={true} targetX={targetXDraw} moving />
       )}
 
       {/* score / hint */}
@@ -982,11 +989,31 @@ function HBar({ pos, playing, lv, T, blindVis, targetX, moving }) {
   );
 }
 
+function ScaledHBar(props) {
+  const [scale, setScale] = useState(1);
+  useEffect(() => {
+    const update = () => {
+      const avail = window.innerWidth - 32;
+      setScale(avail < BAR_W ? avail / BAR_W : 1);
+    };
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
+  return (
+    <div style={{ width: Math.round(BAR_W * scale), height: Math.round(32 * scale) }}>
+      <div style={{ transform:`scale(${scale})`, transformOrigin:"top left", width:BAR_W, height:32 }}>
+        <HBar {...props} />
+      </div>
+    </div>
+  );
+}
+
 function DiagBox({ pos, playing, T }) {
   const end = SQ - DOT;
   const ex = end + DOT/2, ey = end + DOT/2;
   return (
-    <svg width={SQ} height={SQ} style={{ display:"block" }}>
+    <svg viewBox={`0 0 ${SQ} ${SQ}`} style={{ display:"block", width:`min(${SQ}px, calc(100vw - 32px))`, height:"auto" }}>
       <circle cx={SQ/2} cy={SQ/2} r={SQ/2-3} fill="none" stroke={T.border} strokeWidth="1" strokeDasharray="2 8" />
       <line x1={DOT/2} y1={DOT/2} x2={ex} y2={ey} stroke={T.track} strokeWidth="2" strokeDasharray="6 5" />
       <circle cx={DOT/2} cy={DOT/2} r={3} fill={T.border} />
@@ -1006,7 +1033,7 @@ function VDropBox({ pos, playing, T }) {
   const cx = SQ / 2;
   const ty = SQ - DOT / 2; // target center y (bottom)
   return (
-    <svg width={SQ} height={SQ} style={{ display:"block" }}>
+    <svg viewBox={`0 0 ${SQ} ${SQ}`} style={{ display:"block", width:`min(${SQ}px, calc(100vw - 32px))`, height:"auto" }}>
       <circle cx={cx} cy={SQ/2} r={SQ/2-3} fill="none" stroke={T.border} strokeWidth="1" strokeDasharray="2 8" />
       <line x1={cx} y1={DOT/2} x2={cx} y2={ty} stroke={T.track} strokeWidth="2" strokeDasharray="6 5" />
       <circle cx={cx} cy={DOT/2} r={3} fill={T.border} />
@@ -1026,7 +1053,7 @@ function CircleBox({ pos, playing, T, targetAngle = -Math.PI / 2, blindVis = tru
   const cx=SQ/2, cy=SQ/2, r=SQ/2-DOT-2;
   const tx=cx + r*Math.cos(targetAngle), ty=cy + r*Math.sin(targetAngle);
   return (
-    <svg width={SQ} height={SQ} style={{ display:"block" }}>
+    <svg viewBox={`0 0 ${SQ} ${SQ}`} style={{ display:"block", width:`min(${SQ}px, calc(100vw - 32px))`, height:"auto" }}>
       {/* orbit track */}
       <circle cx={cx} cy={cy} r={r} fill="none" stroke={T.track} strokeWidth="2" strokeDasharray="3 6" />
       {/* cardinal ticks */}
@@ -1051,7 +1078,7 @@ function CircleBox({ pos, playing, T, targetAngle = -Math.PI / 2, blindVis = tru
 function Box2D({ pos, playing, T, blindVis = true }) {
   const cx=SQ/2, cy=SQ/2;
   return (
-    <svg width={SQ} height={SQ} style={{ display:"block" }}>
+    <svg viewBox={`0 0 ${SQ} ${SQ}`} style={{ display:"block", width:`min(${SQ}px, calc(100vw - 32px))`, height:"auto" }}>
       <rect x={1} y={1} width={SQ-2} height={SQ-2} rx={10} fill="none" stroke={T.border} strokeWidth="1" />
       <line x1={cx} y1={4}    x2={cx} y2={SQ-4} stroke={T.track} strokeWidth="1" />
       <line x1={4}  y1={cy}   x2={SQ-4} y2={cy} stroke={T.track} strokeWidth="1" />
@@ -1072,7 +1099,7 @@ function VortexBox({ pos, playing, T, targetAngle }) {
   const tx = cx + r*Math.cos(targetAngle) - DOT/2;
   const ty = cy + r*Math.sin(targetAngle) - DOT/2;
   return (
-    <svg width={SQ} height={SQ} style={{ display:"block" }}>
+    <svg viewBox={`0 0 ${SQ} ${SQ}`} style={{ display:"block", width:`min(${SQ}px, calc(100vw - 32px))`, height:"auto" }}>
       {/* concentric rings */}
       {[0.25,0.5,0.75,1].map((frac,i) => (
         <circle key={i} cx={cx} cy={cy} r={(SQ/2-DOT-4)*frac}
@@ -1105,24 +1132,31 @@ function ScoreFlash({ score, T }) {
 // ─── SETTINGS PANEL ──────────────────────────────────────────────────────────
 function SettingsPanel({ T, settings, setSettings, onClose }) {
   const Toggle = ({ val, onChange, label }) => (
-    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"11px 0", borderBottom:`1px solid ${T.border}` }}>
-      <span style={{ color:T.fg, fontSize:11, letterSpacing:2 }}>{label}</span>
-      <div onClick={onChange} style={{ width:36, height:20, borderRadius:10, cursor:"pointer",
+    <div onClick={onChange} style={{
+      display:"flex", justifyContent:"space-between", alignItems:"center",
+      padding:"14px 0", borderBottom:`1px solid ${T.border}`,
+      cursor:"pointer", minHeight:48,
+    }}>
+      <span style={{ color:T.fg, fontSize:12, letterSpacing:2 }}>{label}</span>
+      <div style={{ width:44, height:26, borderRadius:13, flexShrink:0,
         background: val?"#00ffcc":T.track, position:"relative", transition:"background 0.2s" }}>
-        <div style={{ position:"absolute", top:3, left: val?18:3, width:14, height:14, borderRadius:"50%",
+        <div style={{ position:"absolute", top:4, left: val?22:4, width:18, height:18, borderRadius:"50%",
           background: val?"#000":T.sub, transition:"left 0.2s" }} />
       </div>
     </div>
   );
   return (
-    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)",
-      display:"flex", alignItems:"center", justifyContent:"center", zIndex:200 }} onClick={onClose}>
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.65)",
+      display:"flex", alignItems:"center", justifyContent:"center", zIndex:200, padding:16 }} onClick={onClose}>
       <div onClick={e=>e.stopPropagation()} style={{
-        background:T.bg, border:`1px solid ${T.border}`, borderRadius:12,
-        padding:"28px 32px", width:256, fontFamily:"'Courier New', monospace" }}>
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
+        background:T.bg, border:`1px solid ${T.border}`, borderRadius:16,
+        padding:"24px 24px 16px", width:"100%", maxWidth:300, fontFamily:"'Courier New', monospace" }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
           <span style={{ color:T.fg, fontSize:12, letterSpacing:4 }}>SETTINGS</span>
-          <button onClick={onClose} style={{ background:"none", border:"none", color:T.sub, cursor:"pointer", fontSize:16 }}>✕</button>
+          <button onClick={onClose} style={{
+            background:"none", border:"none", color:T.sub, cursor:"pointer", fontSize:18,
+            padding:"4px 8px", minWidth:44, minHeight:44, display:"flex", alignItems:"center", justifyContent:"center",
+          }}>✕</button>
         </div>
         <Toggle label="DAY MODE"    val={settings.day}        onChange={()=>setSettings(s=>({...s,day:!s.day}))} />
         <Toggle label="SKIP WARMUP" val={settings.skipWarmup} onChange={()=>setSettings(s=>({...s,skipWarmup:!s.skipWarmup}))} />
@@ -1448,12 +1482,15 @@ function LegacyMenu({ T, onStart, onUnlockAudio, settings, showSettings, setShow
     <div style={{ minHeight:"100vh", display:"flex", flexDirection:"column",
       alignItems:"center", justifyContent:"center",
       background:T.bg, fontFamily:"'Courier New', monospace",
-      color:T.fg, textAlign:"center", transition:"background 0.4s", padding:"40px 0" }}>
+      color:T.fg, textAlign:"center", transition:"background 0.4s",
+      padding:"56px 16px 48px" }}>
 
       <button onClick={async ()=>{ await onUnlockAudio?.(); sndClick(); setShowSettings(true); }}
         onMouseEnter={sndHover}
-        style={{ position:"fixed", top:16, right:16, background:"transparent",
-          border:"none", cursor:"pointer", color:T.sub, fontSize:18, padding:4 }}>⚙</button>
+        style={{ position:"fixed", top:8, right:8, background:"transparent",
+          border:"none", cursor:"pointer", color:T.sub, fontSize:18,
+          minWidth:44, minHeight:44, display:"flex", alignItems:"center", justifyContent:"center",
+          padding:0 }}>⚙</button>
 
       {showSettings && <SettingsPanel T={T} settings={settings} setSettings={setSettings} onClose={()=>setShowSettings(false)} />}
 
@@ -1461,11 +1498,11 @@ function LegacyMenu({ T, onStart, onUnlockAudio, settings, showSettings, setShow
         <DeadcenterLogo T={T} size={52} />
       </div>
       <p style={{ color:T.fg, fontSize:13, letterSpacing:4, margin:"0 0 8px", opacity:0.88, textShadow:"0 0 10px rgba(0,0,0,0.18)" }}>stop the dot on the target</p>
-      <p style={{ color:T.fg, fontSize:9, letterSpacing:3, margin:"0 0 22px", opacity:0.68 }}>
-        click a difficulty for the full set, or click any level row to build your run
+      <p style={{ color:T.fg, fontSize:10, letterSpacing:2, margin:"0 0 22px", opacity:0.65 }}>
+        tap a difficulty to select, or pick individual levels below
       </p>
 
-      <div style={{ display:"flex", gap:8, flexWrap:"wrap", justifyContent:"center", marginBottom:24, maxWidth:560 }}>
+      <div style={{ display:"flex", gap:8, flexWrap:"wrap", justifyContent:"center", marginBottom:24, width:"100%", maxWidth:560 }}>
         {quickPicks.map(pick => {
           const ids = pick.levels.map(l => l.id);
           const allSelected = ids.every(id => playlistIds.includes(id));
@@ -1477,7 +1514,7 @@ function LegacyMenu({ T, onStart, onUnlockAudio, settings, showSettings, setShow
                 background: allSelected ? `${pick.color}18` : "transparent",
                 border:`1px solid ${allSelected ? pick.color : T.border}`,
                 color: allSelected ? pick.color : T.sub,
-                padding:"10px 14px", minWidth:96,
+                padding:"12px 14px", minWidth:80, minHeight:44,
                 borderRadius:4,
                 transform: allSelected ? "translateY(-1px)" : "translateY(0)",
                 boxShadow: allSelected ? `0 8px 20px ${pick.color}15` : "none" }}>
@@ -1487,7 +1524,7 @@ function LegacyMenu({ T, onStart, onUnlockAudio, settings, showSettings, setShow
         })}
       </div>
 
-      <div style={{ width:560, maxWidth:"calc(100vw - 32px)", textAlign:"left", marginBottom:22 }}>
+      <div style={{ width:"100%", maxWidth:560, textAlign:"left", marginBottom:22 }}>
         {diffSections.map(sec => {
           const dc = DIFF[sec.key];
           const secIds = sec.levels.map(l => l.id);
@@ -1505,18 +1542,18 @@ function LegacyMenu({ T, onStart, onUnlockAudio, settings, showSettings, setShow
                 transition:"border-color 0.2s" }}>
                 <div onClick={async ()=>{ await onUnlockAudio?.(); playSelectSound(sec.levels); toggleDiff(sec.levels); }}
                   onMouseEnter={sndHover}
-                  style={{ display:"flex", alignItems:"center", gap:8, cursor:"pointer" }}>
+                  style={{ display:"flex", alignItems:"center", gap:8, cursor:"pointer", minHeight:44 }}>
                   <span style={{ color:dc.color, fontSize:12, opacity:allTicked ? 1 : 0.45, userSelect:"none", lineHeight:1 }}>
                     {allTicked ? "[x]" : "[ ]"}
                   </span>
-                  <span style={{ fontSize:10, letterSpacing:4, color:dc.color, opacity:0.85 }}>
+                  <span style={{ fontSize:11, letterSpacing:3, color:dc.color, opacity:0.85 }}>
                     {sec.label}
                   </span>
-                  <span style={{ fontSize:8, letterSpacing:2, color:T.fg, opacity:0.56 }}>
-                    click to select all
+                  <span style={{ fontSize:9, letterSpacing:1, color:T.fg, opacity:0.5 }}>
+                    tap to select all
                   </span>
                 </div>
-                <span style={{ fontSize:9, letterSpacing:2, color:dc.color, opacity:0.5 }}>
+                <span style={{ fontSize:9, letterSpacing:2, color:dc.color, opacity:0.5, flexShrink:0 }}>
                   max {maxSpeedLabel[sec.key]}
                 </span>
               </div>
@@ -1526,9 +1563,9 @@ function LegacyMenu({ T, onStart, onUnlockAudio, settings, showSettings, setShow
                 return (
                   <div key={lv.id} onClick={async ()=>{ await onUnlockAudio?.(); playSelectSound([lv]); toggleLevel(lv.id); }}
                     onMouseEnter={sndHover}
-                    style={{ display:"grid", gridTemplateColumns:"18px 160px 1fr",
-                      alignItems:"center", gap:"0 12px",
-                      padding:"7px 0", borderBottom:`1px solid ${T.border}`,
+                    style={{ display:"grid", gridTemplateColumns:"18px minmax(80px, 140px) 1fr",
+                      alignItems:"center", gap:"0 10px",
+                      padding:"11px 0", borderBottom:`1px solid ${T.border}`,
                       cursor:"pointer",
                       background:selected ? `${dc.color}11` : "transparent",
                       transition:"background 0.15s, transform 0.15s",
@@ -1551,17 +1588,18 @@ function LegacyMenu({ T, onStart, onUnlockAudio, settings, showSettings, setShow
         })}
       </div>
 
-      <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:10 }}>
-        <p style={{ color:T.fg, fontSize:9, letterSpacing:3, margin:0, opacity:0.62 }}>
-          {playlistIds.length === 0 ? "pick a difficulty or click levels above" : `${playlistIds.length} level${playlistIds.length>1?"s":""} selected`}
+      <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:10, width:"100%", maxWidth:320 }}>
+        <p style={{ color:T.fg, fontSize:10, letterSpacing:2, margin:0, opacity:0.62 }}>
+          {playlistIds.length === 0 ? "pick a difficulty or tap levels above" : `${playlistIds.length} level${playlistIds.length>1?"s":""} selected`}
         </p>
         <button onClick={startSelection}
           disabled={playlistIds.length === 0}
           style={{ background:playlistIds.length > 0 ? "#00ffcc" : `${T.border}55`, border:"none",
             color:playlistIds.length > 0 ? "#000" : T.sub,
-            padding:"13px 52px", fontSize:13, letterSpacing:5, textTransform:"uppercase",
+            padding:"14px 0", fontSize:13, letterSpacing:5, textTransform:"uppercase",
             cursor:playlistIds.length > 0 ? "pointer" : "not-allowed", fontFamily:"'Courier New', monospace",
-            fontWeight:"bold", borderRadius:2, opacity:playlistIds.length > 0 ? 1 : 0.6,
+            fontWeight:"bold", borderRadius:4, opacity:playlistIds.length > 0 ? 1 : 0.6,
+            width:"100%", minHeight:48,
             transition:"background 0.15s, transform 0.15s, box-shadow 0.15s",
             boxShadow:playlistIds.length > 0 ? "0 10px 24px rgba(0,255,204,0.12)" : "none" }}
           onMouseEnter={playlistIds.length > 0 ? e=>{ sndHover(); e.currentTarget.style.background="#00e6b8"; e.currentTarget.style.transform="translateY(-1px)"; } : undefined}
@@ -1871,13 +1909,14 @@ function Result({ T, scores, levels, scoreWarmup, onReplay, onMenu }) {
     <div style={{ minHeight:"100vh", display:"flex", flexDirection:"column",
       alignItems:"center", justifyContent:"center",
       background:T.bg, fontFamily:"'Courier New', monospace",
-      color:T.fg, textAlign:"center", transition:"background 0.4s" }}>
+      color:T.fg, textAlign:"center", transition:"background 0.4s",
+      padding:"40px 16px 56px" }}>
 
       <p style={{ color:T.sub, fontSize:12, letterSpacing:5, marginBottom:10, opacity:0.7 }}>FINAL SCORE</p>
-      <div style={{ fontSize:112, fontWeight:"bold", color, lineHeight:1, letterSpacing:-6 }}>{avg}</div>
-      <div style={{ fontSize:16, letterSpacing:7, color, marginTop:14, marginBottom:36, textTransform:"uppercase" }}>{label}</div>
+      <div style={{ fontSize:"clamp(52px, 22vw, 112px)", fontWeight:"bold", color, lineHeight:1, letterSpacing:-2 }}>{avg}</div>
+      <div style={{ fontSize:"clamp(12px, 3.5vw, 16px)", letterSpacing:6, color, marginTop:14, marginBottom:36, textTransform:"uppercase" }}>{label}</div>
 
-      <div style={{ display:"flex", gap:16, flexWrap:"wrap", justifyContent:"center", marginBottom:36, maxWidth:760 }}>
+      <div style={{ display:"flex", gap:10, flexWrap:"wrap", justifyContent:"center", marginBottom:36, width:"100%", maxWidth:680 }}>
         {scores.map((s,i) => {
           const lv = levels[i];
           const dc = lv ? DIFF[lv.diff] : DIFF.easy;
@@ -1885,8 +1924,9 @@ function Result({ T, scores, levels, scoreWarmup, onReplay, onMenu }) {
           return (
             <div key={i} style={{
               textAlign:"center",
-              width:112,
-              minHeight:88,
+              flex:"1 0 80px",
+              maxWidth:112,
+              minHeight:80,
               opacity: excluded ? 0.3 : 1,
               transition:"opacity 0.2s, transform 0.2s",
               padding:"8px 6px",
@@ -1901,7 +1941,7 @@ function Result({ T, scores, levels, scoreWarmup, onReplay, onMenu }) {
                 marginBottom:6,
                 opacity:0.82,
                 lineHeight:1.35,
-                minHeight:24,
+                minHeight:22,
                 whiteSpace:"normal",
                 wordBreak:"break-word",
                 textTransform:"uppercase",
@@ -1917,14 +1957,16 @@ function Result({ T, scores, levels, scoreWarmup, onReplay, onMenu }) {
 
       <p style={{ color:T.sub, fontSize:12, marginBottom:32, opacity:0.55 }}>better than {percentile}% of players</p>
 
-      <div style={{ display:"flex", gap:10 }}>
+      <div style={{ display:"flex", gap:12, flexWrap:"wrap", justifyContent:"center" }}>
         {[["retry",onReplay],["menu",onMenu]].map(([lbl,fn])=>(
           <button key={lbl} onClick={fn}
             onMouseEnter={e=>{e.currentTarget.style.borderColor="#00ffcc";e.currentTarget.style.color="#00ffcc";e.currentTarget.style.transform="translateY(-1px)";}}
             onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.color=T.sub;e.currentTarget.style.transform="translateY(0)";}}
             style={{ background:"transparent", border:`1px solid ${T.border}`, color:T.sub,
-              padding:"10px 32px", fontSize:12, letterSpacing:4, textTransform:"uppercase",
-              cursor:"pointer", fontFamily:"'Courier New', monospace", transition:"border-color 0.2s, color 0.2s, transform 0.2s" }}>
+              padding:"13px 36px", fontSize:12, letterSpacing:4, textTransform:"uppercase",
+              cursor:"pointer", fontFamily:"'Courier New', monospace",
+              minHeight:48, minWidth:120,
+              transition:"border-color 0.2s, color 0.2s, transform 0.2s" }}>
             {lbl}
           </button>
         ))}

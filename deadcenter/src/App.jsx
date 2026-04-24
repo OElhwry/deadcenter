@@ -181,83 +181,6 @@ function playLaunch(ctx) {
 
 // ── HOME SCREEN MUSIC ──────────────────────────────────────────────────────
 // Chiptune-style arpeggiated loop using Web Audio scheduling
-function startMenuMusicLegacy(ctx, volume = 0.1) {
-  if (!ctx) return { setVolume() {}, stop() {} };
-  const master = ctx.createGain();
-  master.gain.value = 0;
-  master.connect(ctx.destination);
-  const targetGain = Math.max(0, Math.min(1, volume)) * 0.7;
-  master.gain.linearRampToValueAtTime(targetGain, ctx.currentTime + 1.5);
-
-  // Pentatonic minor root: A2 = 110Hz
-  // Scale degrees: 1, b3, 4, 5, b7  → 110, 130.8, 146.8, 165, 195.9
-  const scale = [110, 130.8, 146.8, 165, 195.9, 220, 261.6, 293.6, 330, 392];
-  const melody = [4,6,7,6,4,2,0,2, 4,6,9,8,6,4,2,4];  // indices into scale
-  const bpm = 140;
-  const step = 60 / bpm;            // seconds per beat
-  let stopped = false;
-  let timeoutIds = [];
-
-  const scheduleBar = (barStart) => {
-    if (stopped) return;
-    melody.forEach((deg, i) => {
-      const t = barStart + i * step * 0.5;
-      const freq = scale[deg % scale.length];
-      // schedule via AudioContext time for tight timing
-      const o = ctx.createOscillator();
-      const g = ctx.createGain();
-      o.type = "square";
-      o.frequency.value = freq * 2; // up an octave — bright chiptune
-      g.gain.setValueAtTime(0, t);
-      g.gain.linearRampToValueAtTime(0.22, t + 0.01);
-      g.gain.exponentialRampToValueAtTime(0.001, t + step * 0.45);
-      o.connect(g); g.connect(master);
-      o.start(t); o.stop(t + step * 0.5);
-    });
-
-    // Bass line — root notes
-    [0, 0, 2, 0].forEach((deg, i) => {
-      const t = barStart + i * step * 2;
-      const freq = scale[deg];
-      const o = ctx.createOscillator();
-      const g = ctx.createGain();
-      o.type = "triangle";
-      o.frequency.value = freq;
-      g.gain.setValueAtTime(0.18, t);
-      g.gain.exponentialRampToValueAtTime(0.001, t + step * 1.8);
-      o.connect(g); g.connect(master);
-      o.start(t); o.stop(t + step * 2);
-    });
-
-    // schedule next bar
-    const barLen = melody.length * step * 0.5;
-    const id = setTimeout(() => scheduleBar(barStart + barLen), (barLen - 0.2) * 1000);
-    timeoutIds.push(id);
-  };
-
-  scheduleBar(ctx.currentTime + 0.1);
-
-  return {
-    setVolume(nextVolume) {
-      const nextGain = Math.max(0, Math.min(1, nextVolume)) * 0.7;
-      master.gain.cancelScheduledValues(ctx.currentTime);
-      master.gain.linearRampToValueAtTime(nextGain, ctx.currentTime + 0.2);
-    },
-    stop(immediate = false) {
-      stopped = true;
-      timeoutIds.forEach(clearTimeout);
-      master.gain.cancelScheduledValues(ctx.currentTime);
-      if (immediate) {
-        master.gain.setValueAtTime(0, ctx.currentTime);
-        try { master.disconnect(); } catch {}
-        return;
-      }
-      master.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.8);
-      setTimeout(() => { try { master.disconnect(); } catch {} }, 1500);
-    }
-  };
-}
-
 function startMenuMusic(ctx, volume = 0.1, intensity = 0) {
   if (!ctx) return { setVolume() {}, setIntensity() {}, stop() {} };
   const master = ctx.createGain();
@@ -379,10 +302,29 @@ function startMenuMusic(ctx, volume = 0.1, intensity = 0) {
   };
 }
 
+// ─── PERSISTENCE ──────────────────────────────────────────────────────────────
+const LS_SETTINGS = "deadcenter.settings.v1";
+const LS_BESTS    = "deadcenter.bests.v1";
+function loadJSON(key, fallback) {
+  try { const raw = localStorage.getItem(key); return raw ? { ...fallback, ...JSON.parse(raw) } : fallback; }
+  catch { return fallback; }
+}
+function saveJSON(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
+}
+// Derive a stable preset key for bests from the level set (sorted ids).
+function presetKey(levelSet) {
+  const ids = levelSet.filter(l => !l.warmup).map(l => l.id).sort((a,b)=>a-b);
+  return ids.join(",");
+}
+
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 export default function App() {
   const [screen,       setScreen]       = useState("menu");
-  const [settings,     setSettings]     = useState({ day:false, skipWarmup:false, mute:false });
+  const [settings,     setSettings]     = useState(() =>
+    loadJSON(LS_SETTINGS, { day:false, skipWarmup:false, mute:false })
+  );
+  const [bestScores,   setBestScores]   = useState(() => loadJSON(LS_BESTS, {}));
   const [showSettings, setShowSettings] = useState(false);
   const [levels,       setLevels]       = useState([]);
   const [lvIdx,        setLvIdx]        = useState(0);
@@ -390,6 +332,10 @@ export default function App() {
   const [playing,      setPlaying]      = useState(false);
   const [lastScore,    setLastScore]    = useState(null);
   const [showScore,    setShowScore]    = useState(false);
+  const [runMeta,      setRunMeta]      = useState({ previousBest: null, isNewBest: false });
+
+  useEffect(() => { saveJSON(LS_SETTINGS, settings); }, [settings]);
+  useEffect(() => { saveJSON(LS_BESTS, bestScores); }, [bestScores]);
   const musicVol = 0.1;
   const musicPaused = false;
   const [scoreWarmup,  setScoreWarmup]  = useState(false);
@@ -429,7 +375,12 @@ export default function App() {
   const droneStopRef  = useRef(null);
   const musicLoopRef  = useRef(null);
   const frameRef      = useRef(0);
+  const scoresRef     = useRef([]);
+  const scoreWarmupRef = useRef(false);
+  const bestScoresRef = useRef(bestScores);
 
+  bestScoresRef.current = bestScores;
+  scoreWarmupRef.current = scoreWarmup;
   mutedRef.current = settings.mute;
 
   const getCtx = useCallback(() => {
@@ -741,16 +692,34 @@ export default function App() {
     snd(playScore, sc);
     setLastScore(sc);
     setShowScore(true);
-    setScores(prev => [...prev, sc]);
+    scoresRef.current = [...scoresRef.current, sc];
+    setScores(scoresRef.current);
 
     setTimeout(() => {
       const next = lvIdxRef.current + 1;
       if (next < levelsRef.current.length) startLevel(next);
       else {
         if (droneStopRef.current) { droneStopRef.current(); droneStopRef.current=null; }
+        // Compute final avg (excluding warmup unless this run counts warmup) and update bests.
+        const finalScores = scoresRef.current;
+        const scoredPairs = finalScores
+          .map((s, i) => ({ s, lv: levelsRef.current[i] }))
+          .filter(({ lv }) => scoreWarmupRef.current || !lv?.warmup);
+        const finalAvg = scoredPairs.length
+          ? Math.round(scoredPairs.reduce((a, { s }) => a + s, 0) / scoredPairs.length)
+          : 0;
+        const key = presetKey(levelsRef.current);
+        const prevBest = bestScoresRef.current[key] ?? null;
+        const isNew = finalAvg > 0 && (prevBest == null || finalAvg > prevBest);
+        if (isNew) {
+          const nextBests = { ...bestScoresRef.current, [key]: finalAvg };
+          bestScoresRef.current = nextBests;
+          setBestScores(nextBests);
+        }
+        setRunMeta({ previousBest: prevBest, isNewBest: isNew });
         setScreen("result");
       }
-    }, 1300);
+    }, 750);
   }, [startLevel, snd]);
 
   useEffect(() => {
@@ -786,6 +755,7 @@ export default function App() {
       : pickLevels(countOrLevels, settings.skipWarmup);
     levelsRef.current = chosen;
     setLevels(chosen);
+    scoresRef.current = [];
     setScores([]);
     setScoreWarmup(opts.countWarmup ?? false);
     setShowSettings(false);
@@ -815,6 +785,7 @@ export default function App() {
   if (screen === "menu") return (
     <LegacyMenu T={T} onStart={startGame} onUnlockAudio={unlockAudio} settings={settings} showSettings={showSettings}
       setShowSettings={setShowSettings} setSettings={setSettings}
+      bestScores={bestScores}
       sndClick={() => snd(playClick)}
       sndHover={() => snd(playHover)}
       sndThreat={(tier) => snd(playThreatSelect, tier)}
@@ -823,6 +794,7 @@ export default function App() {
 
   if (screen === "result") return (
     <Result T={T} scores={scores} levels={levels} scoreWarmup={scoreWarmup}
+      previousBest={runMeta.previousBest} isNewBest={runMeta.isNewBest}
       onReplay={() => startGame(levels, { countWarmup: scoreWarmup })} onMenu={goMenu} />
   );
 
@@ -840,8 +812,8 @@ export default function App() {
       padding:"72px 16px 32px",
       touchAction:"manipulation",
     }}>
-      {/* top bar */}
-      <div style={{
+      {/* top bar — swallow clicks so mid-run taps near the top don't end the round */}
+      <div onClick={e => e.stopPropagation()} style={{
         position:"fixed", top:0, left:0, right:0,
         display:"flex", alignItems:"center", padding:"6px 10px",
         background:`${T.bg}ee`, backdropFilter:"blur(8px)",
@@ -1166,247 +1138,12 @@ function SettingsPanel({ T, settings, setSettings, onClose }) {
   );
 }
 
-// ─── QUICKPLAY LEVEL PICKER ──────────────────────────────────────────────────
-const QP_MODES = [
-  // countWarmup: whether warmup score counts toward final average
-  { key:"easy",       label:"EASY",       color:"#4ade80", countWarmup: true,  build: () => {
-    const pool = POOL.filter(l=>l.diff==="easy").sort(()=>Math.random()-0.5);
-    return [WARMUP, ...pool];               // easy always includes warmup
-  }},
-  { key:"medium",     label:"MEDIUM",     color:"#f59e0b", countWarmup: false, build: (skip) => {
-    const pool = POOL.filter(l=>l.diff==="medium").sort(()=>Math.random()-0.5);
-    return skip ? pool : [WARMUP, ...pool];
-  }},
-  { key:"hard",       label:"HARD",       color:"#ef4444", countWarmup: false, build: (skip) => {
-    const pool = POOL.filter(l=>l.diff==="hard").sort(()=>Math.random()-0.5);
-    return skip ? pool : [WARMUP, ...pool];
-  }},
-  { key:"impossible", label:"IMPOSSIBLE", color:"#9b1c1c", countWarmup: false, build: (skip) => {
-    const pool = POOL.filter(l=>l.diff==="impossible").sort(()=>Math.random()-0.5);
-    return skip ? pool : [WARMUP, ...pool];
-  }},
-  { key:"all",        label:"ALL",        color:"#00ffcc", countWarmup: true,  build: () => {
-    const pool = [...POOL].sort(()=>Math.random()-0.5);
-    return [WARMUP, ...pool];               // all always includes warmup
-  }},
-];
-
 // ─── MENU ────────────────────────────────────────────────────────────────────
-function LegacyMenuOld({ T, onStart, settings, showSettings, setShowSettings, setSettings, sndClick, sndHover }) {
-  const [qpMode,       setQpMode]       = useState(null);
-  const [playlistMode, setPlaylistMode] = useState(false);
-  const [playlistIds,  setPlaylistIds]  = useState([]);
-
-  const toggleLevel = (id) => {
-    setPlaylistIds(prev => prev.includes(id) ? prev.filter(x=>x!==id) : [...prev, id]);
-  };
-
-  const toggleDiff = (_diffKey, levels) => {
-    const ids = levels.map(l=>l.id);
-    const allSelected = ids.every(id => playlistIds.includes(id));
-    setPlaylistIds(prev =>
-      allSelected ? prev.filter(id => !ids.includes(id)) : [...new Set([...prev, ...ids])]
-    );
-  };
-
-  const startPlaylist = () => {
-    const chosen = [
-      ...(settings.skipWarmup ? [] : [WARMUP]),
-      ...POOL.filter(l => playlistIds.includes(l.id)),
-    ];
-    if (chosen.length === 0) return;
-    sndClick();
-    onStart(chosen);
-  };
-
-  // max speed label per difficulty
-  const maxSpeedLabel = { easy:"none", medium:"2×", hard:"3×", impossible:"4×" };
-
-  // highlight ONLY the named diff tier (not cumulative lower tiers)
-  const QP_HIGHLIGHT = {
-    easy:       new Set(["easy"]),
-    medium:     new Set(["medium"]),
-    hard:       new Set(["hard"]),
-    impossible: new Set(["impossible"]),
-    all:        new Set(["easy","medium","hard","impossible"]),
-  };
-  const hlDiffs = qpMode ? QP_HIGHLIGHT[qpMode] : null;
-
-  const diffSections = [
-    { key:"easy",       label:"I — EASY",       levels: [WARMUP, ...POOL.filter(l=>l.diff==="easy")] },
-    { key:"medium",     label:"II — MEDIUM",     levels: POOL.filter(l=>l.diff==="medium") },
-    { key:"hard",       label:"III — HARD",      levels: POOL.filter(l=>l.diff==="hard") },
-    { key:"impossible", label:"∞ — IMPOSSIBLE",  levels: POOL.filter(l=>l.diff==="impossible") },
-  ];
-
-  const btnBase = {
-    fontFamily:"'Courier New', monospace", cursor:"pointer",
-    transition:"all 0.15s", letterSpacing:3, fontSize:11,
-  };
-
-  return (
-    <div style={{ minHeight:"100vh", display:"flex", flexDirection:"column",
-      alignItems:"center", justifyContent:"center",
-      background:T.bg, fontFamily:"'Courier New', monospace",
-      color:T.fg, textAlign:"center", transition:"background 0.4s", padding:"40px 0" }}>
-
-      {/* settings gear */}
-      <button onClick={()=>{ sndClick(); setShowSettings(true); }}
-        onMouseEnter={sndHover}
-        style={{ position:"fixed", top:16, right:16, background:"transparent",
-          border:"none", cursor:"pointer", color:T.sub, fontSize:18, padding:4 }}>⚙</button>
-
-      {showSettings && <SettingsPanel T={T} settings={settings} setSettings={setSettings} onClose={()=>setShowSettings(false)} />}
-
-      {/* logo */}
-      <div style={{ marginBottom:10 }}>
-        <DeadcenterLogo T={T} size={52} />
-      </div>
-      <p style={{ color:T.sub, fontSize:13, letterSpacing:4, margin:"0 0 36px", opacity:0.8 }}>stop the dot on the target</p>
-
-      {/* difficulty sections */}
-      <div style={{ width:500, textAlign:"left", marginBottom:32 }}>
-        {diffSections.map(sec => {
-          const dc = DIFF[sec.key];
-          const secIds = sec.levels.map(l=>l.id);
-          const allTicked = secIds.length > 0 && secIds.every(id => playlistIds.includes(id));
-          // quickplay highlight: is this diff tier included in the selected mode?
-          const secLit = !playlistMode && hlDiffs ? hlDiffs.has(sec.key) : false;
-          return (
-            <div key={sec.key} style={{ marginBottom:18,
-              borderRadius:6,
-              background: secLit ? `${dc.color}09` : "transparent",
-              transition:"background 0.2s",
-              padding: secLit ? "0 6px 4px" : "0" }}>
-              {/* section header with tick + speed cap */}
-              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between",
-                marginBottom:6, paddingBottom:4,
-                borderBottom:`1px solid ${secLit ? dc.color + "55" : dc.dim}`,
-                transition:"border-color 0.2s" }}>
-                <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                  {playlistMode && (
-                    <span onClick={()=>toggleDiff(sec.key, sec.levels)}
-                      style={{ color:dc.color, fontSize:12, cursor:"pointer", opacity: allTicked ? 1 : 0.4,
-                        userSelect:"none", lineHeight:1 }}>
-                      {allTicked ? "☑" : "☐"}
-                    </span>
-                  )}
-                  <span style={{ fontSize:10, letterSpacing:4, color:dc.color,
-                    opacity: secLit ? 1 : 0.85,
-                    transition:"opacity 0.2s" }}>
-                    {sec.label}
-                  </span>
-                </div>
-                <span style={{ fontSize:9, letterSpacing:2, color:dc.color, opacity:0.5 }}>
-                  max {maxSpeedLabel[sec.key]}
-                </span>
-              </div>
-              {sec.levels.map(lv => {
-                const selected = playlistIds.includes(lv.id);
-                const rowLit = secLit;
-                return (
-                  <div key={lv.id} onClick={playlistMode ? ()=>{ sndClick(); toggleLevel(lv.id); } : undefined}
-                    onMouseEnter={playlistMode ? sndHover : undefined}
-                    style={{ display:"grid", gridTemplateColumns:"18px 160px 1fr",
-                      alignItems:"center", gap:"0 12px",
-                      padding:"7px 0", borderBottom:`1px solid ${T.border}`,
-                      cursor: playlistMode ? "pointer" : "default",
-                      background: selected ? `${dc.color}11` : "transparent",
-                      transition:"background 0.15s" }}>
-                    <span style={{ color:dc.color, fontSize:10, opacity: rowLit ? 0.9 : selected ? 1 : 0.5 }}>
-                      {playlistMode ? (selected ? "✓" : "○") : (lv.warmup ? "★" : "·")}
-                    </span>
-                    <span style={{ color: (rowLit || selected) ? T.fg : T.sub, fontSize:12, letterSpacing:1,
-                      whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis",
-                      transition:"color 0.2s" }}>{lv.label}</span>
-                    <span style={{ color:T.fg, fontSize:10,
-                      opacity: rowLit ? 0.65 : selected ? 0.7 : 0.35,
-                      whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis",
-                      transition:"opacity 0.2s" }}>{lv.hint}</span>
-                  </div>
-                );
-              })}
-            </div>
-          );
-        })}
-      </div>
-
-      {/* mode toggle */}
-      <div style={{ display:"flex", gap:20, marginBottom:16 }}>
-        {[["QUICKPLAY", false], ["PLAYLIST", true]].map(([lbl, isPlaylist]) => (
-          <button key={lbl}
-            onClick={()=>{ sndClick(); setPlaylistMode(isPlaylist); if (!isPlaylist) setQpMode(null); }}
-            onMouseEnter={sndHover}
-            style={{ ...btnBase, background: playlistMode===isPlaylist ? "#00ffcc22" : "transparent",
-              border:`1px solid ${playlistMode===isPlaylist ? "#00ffcc" : T.border}`,
-              color: playlistMode===isPlaylist ? "#00ffcc" : T.sub,
-              padding:"9px 24px" }}>
-            {lbl}
-          </button>
-        ))}
-      </div>
-
-      {/* quickplay mode buttons or playlist play */}
-      {!playlistMode ? (
-        <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:12 }}>
-          <div style={{ display:"flex", gap:8, flexWrap:"wrap", justifyContent:"center" }}>
-            {QP_MODES.map(m => (
-              <button key={m.key}
-                onClick={()=>{ sndClick(); setQpMode(m.key); }}
-                onMouseEnter={sndHover}
-                style={{ ...btnBase,
-                  background: qpMode===m.key ? `${m.color}22` : "transparent",
-                  border:`1px solid ${qpMode===m.key ? m.color : T.border}`,
-                  color: qpMode===m.key ? m.color : T.sub,
-                  padding:"10px 18px", fontSize:11 }}>
-                {m.label}
-              </button>
-            ))}
-          </div>
-          {qpMode && (
-            <button onClick={()=>{ sndClick(); const m=QP_MODES.find(x=>x.key===qpMode); onStart(m.build(settings.skipWarmup), { countWarmup: m.countWarmup }); }}
-              onMouseEnter={e=>{ sndHover(); e.currentTarget.style.background="#00e6b8"; }}
-              onMouseLeave={e=>{ e.currentTarget.style.background="#00ffcc"; }}
-              style={{ background:"#00ffcc", border:"none", color:"#000",
-                padding:"13px 52px", fontSize:13, letterSpacing:5, textTransform:"uppercase",
-                cursor:"pointer", fontFamily:"'Courier New', monospace",
-                fontWeight:"bold", borderRadius:2, transition:"background 0.15s" }}>
-              PLAY
-            </button>
-          )}
-        </div>
-      ) : (
-        <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:10 }}>
-          <p style={{ color:T.sub, fontSize:9, letterSpacing:3, margin:0, opacity:0.5 }}>
-            {playlistIds.length === 0 ? "pick levels above" : `${playlistIds.length} level${playlistIds.length>1?"s":""} selected`}
-          </p>
-          {playlistIds.length > 0 && (
-            <button onClick={startPlaylist}
-              style={{ background:"#00ffcc", border:"none", color:"#000",
-                padding:"13px 52px", fontSize:13, letterSpacing:5, textTransform:"uppercase",
-                cursor:"pointer", fontFamily:"'Courier New', monospace",
-                fontWeight:"bold", borderRadius:2 }}
-              onMouseEnter={e=>{ sndHover(); e.currentTarget.style.background="#00e6b8"; }}
-              onMouseLeave={e=>e.currentTarget.style.background="#00ffcc"}>
-              PLAY
-            </button>
-          )}
-        </div>
-      )}
-
-      <p style={{ color:T.sub, fontSize:10, letterSpacing:2, marginTop:14, opacity:0.4 }}>
-        {settings.skipWarmup ? "warm up skipped" : "first round is always warm up"}
-      </p>
-
-      <div style={{ position:"fixed", bottom:12, left:"50%", transform:"translateX(-50%)",
-        fontSize:10, letterSpacing:6, color:"#00ffcc", opacity:0.45, pointerEvents:"none" }}>DEADCENTER</div>
-    </div>
+function LegacyMenu({ T, onStart, onUnlockAudio, settings, showSettings, setShowSettings, setSettings, sndClick, sndHover, sndThreat, sndLaunch, bestScores = {} }) {
+  // Default-select EASY so there's always a live PLAY button for first-timers.
+  const [playlistIds, setPlaylistIds] = useState(() =>
+    POOL.filter(l => l.diff === "easy").map(l => l.id)
   );
-}
-
-// ─── RESULT ──────────────────────────────────────────────────────────────────
-function LegacyMenu({ T, onStart, onUnlockAudio, settings, showSettings, setShowSettings, setSettings, sndClick, sndHover, sndThreat, sndLaunch }) {
-  const [playlistIds, setPlaylistIds] = useState([]);
 
   const toggleLevel = (id) => {
     setPlaylistIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
@@ -1423,15 +1160,22 @@ function LegacyMenu({ T, onStart, onUnlockAudio, settings, showSettings, setShow
   const startSelection = async () => {
     if (playlistIds.length === 0) return;
     await onUnlockAudio?.();
+    // Sort picked levels easy → medium → hard → impossible, light shuffle within each tier.
+    const diffOrder = { easy:0, medium:1, hard:2, impossible:3 };
+    const pickedLevels = POOL.filter(l => playlistIds.includes(l.id))
+      .map(l => ({ l, k: Math.random() }))
+      .sort((a, b) => (diffOrder[a.l.diff] - diffOrder[b.l.diff]) || (a.k - b.k))
+      .map(({ l }) => l);
     const chosen = [
       ...(settings.skipWarmup ? [] : [WARMUP]),
-      ...POOL.filter(l => playlistIds.includes(l.id)),
+      ...pickedLevels,
     ];
-    const pickedLevels = POOL.filter(l => playlistIds.includes(l.id));
     const allImpossibleRun = pickedLevels.length > 0 && pickedLevels.every(l => l.diff === "impossible");
     if (allImpossibleRun) sndLaunch();
     else sndClick();
-    onStart(chosen);
+    // Warmup counts toward average only for pure easy runs or mixed runs that start at easy.
+    const countWarmup = pickedLevels.some(l => l.diff === "easy");
+    onStart(chosen, { countWarmup });
   };
 
   useEffect(() => {
@@ -1506,19 +1250,27 @@ function LegacyMenu({ T, onStart, onUnlockAudio, settings, showSettings, setShow
         {quickPicks.map(pick => {
           const ids = pick.levels.map(l => l.id);
           const allSelected = ids.every(id => playlistIds.includes(id));
+          const presetIds = pick.levels.filter(l => !l.warmup).map(l => l.id).sort((a,b)=>a-b).join(",");
+          const best = bestScores[presetIds];
           return (
             <button key={pick.key}
               onClick={async () => { await onUnlockAudio?.(); playSelectSound(pick.levels); toggleDiff(pick.levels); }}
               onMouseEnter={sndHover}
               style={{ ...btnBase,
+                display:"flex", flexDirection:"column", alignItems:"center", gap:3,
                 background: allSelected ? `${pick.color}18` : "transparent",
                 border:`1px solid ${allSelected ? pick.color : T.border}`,
                 color: allSelected ? pick.color : T.sub,
-                padding:"12px 14px", minWidth:80, minHeight:44,
+                padding:"10px 14px", minWidth:80, minHeight:48,
                 borderRadius:4,
                 transform: allSelected ? "translateY(-1px)" : "translateY(0)",
                 boxShadow: allSelected ? `0 8px 20px ${pick.color}15` : "none" }}>
-              {pick.label}
+              <span>{pick.label}</span>
+              {best != null && (
+                <span style={{ fontSize:8, letterSpacing:1.5, opacity:0.75, color:pick.color }}>
+                  best {best}
+                </span>
+              )}
             </button>
           );
         })}
@@ -1618,283 +1370,7 @@ function LegacyMenu({ T, onStart, onUnlockAudio, settings, showSettings, setShow
   );
 }
 
-function Menu({ T, onStart, settings, showSettings, setShowSettings, setSettings, sndClick, sndHover }) {
-  const [playlistIds, setPlaylistIds] = useState([]);
-
-  const toggleLevel = (id) => {
-    setPlaylistIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
-  };
-
-  const toggleDiff = (levels) => {
-    const ids = levels.map(l => l.id);
-    const allSelected = ids.every(id => playlistIds.includes(id));
-    setPlaylistIds(prev =>
-      allSelected ? prev.filter(id => !ids.includes(id)) : [...new Set([...prev, ...ids])]
-    );
-  };
-
-  const startPlaylist = () => {
-    if (playlistIds.length === 0) return;
-    const chosen = [
-      ...(settings.skipWarmup ? [] : [WARMUP]),
-      ...POOL.filter(l => playlistIds.includes(l.id)),
-    ];
-    sndClick();
-    onStart(chosen);
-  };
-
-  const maxSpeedLabel = { easy:"none", medium:"2x", hard:"3x", impossible:"4x" };
-
-  const diffSections = [
-    { key:"easy",       label:"I - EASY",           levels: [WARMUP, ...POOL.filter(l => l.diff === "easy")] },
-    { key:"medium",     label:"II - MEDIUM",        levels: POOL.filter(l => l.diff === "medium") },
-    { key:"hard",       label:"III - HARD",         levels: POOL.filter(l => l.diff === "hard") },
-    { key:"impossible", label:"INF - IMPOSSIBLE",   levels: POOL.filter(l => l.diff === "impossible") },
-  ];
-
-  const presetCards = [
-    ...diffSections.map(sec => ({
-      key: sec.key,
-      label: sec.key.toUpperCase(),
-      color: DIFF[sec.key].color,
-      helper: `${sec.levels.length} level${sec.levels.length > 1 ? "s" : ""}`,
-      levels: sec.levels,
-    })),
-    {
-      key: "all",
-      label: "ALL",
-      color: "#00ffcc",
-      helper: `${POOL.length + 1} levels`,
-      levels: [WARMUP, ...POOL],
-    },
-  ];
-
-  const selectedCount = playlistIds.length + (settings.skipWarmup ? 0 : 1);
-  const btnBase = {
-    fontFamily:"'Courier New', monospace",
-    cursor:"pointer",
-    transition:"all 0.15s",
-    letterSpacing:3,
-    fontSize:11,
-  };
-
-  return (
-    <div style={{ minHeight:"100vh", display:"flex", flexDirection:"column",
-      alignItems:"center", justifyContent:"center",
-      background:T.bg, fontFamily:"'Courier New', monospace",
-      color:T.fg, textAlign:"center", transition:"background 0.4s", padding:"40px 16px" }}>
-
-      <button onClick={()=>{ sndClick(); setShowSettings(true); }}
-        onMouseEnter={sndHover}
-        style={{ position:"fixed", top:16, right:16, background:"transparent",
-          border:"none", cursor:"pointer", color:T.sub, fontSize:18, padding:4 }}>⚙</button>
-
-      {showSettings && <SettingsPanel T={T} settings={settings} setSettings={setSettings} onClose={()=>setShowSettings(false)} />}
-
-      <div style={{ marginBottom:10 }}>
-        <DeadcenterLogo T={T} size={52} />
-      </div>
-      <p style={{ color:T.sub, fontSize:13, letterSpacing:4, margin:"0 0 10px", opacity:0.8 }}>build your run</p>
-      <p style={{ color:T.sub, fontSize:10, letterSpacing:2, margin:"0 0 28px", opacity:0.58 }}>
-        click a difficulty card to add the full set, or click individual levels below
-      </p>
-
-      <div style={{ width:"min(860px, calc(100vw - 32px))", display:"grid", gap:18, marginBottom:22 }}>
-        <div style={{
-          display:"grid",
-          gridTemplateColumns:"repeat(auto-fit, minmax(150px, 1fr))",
-          gap:12,
-        }}>
-          {presetCards.map(card => {
-            const ids = card.levels.map(l => l.id);
-            const allSelected = ids.every(id => playlistIds.includes(id));
-            const selectedSome = ids.some(id => playlistIds.includes(id));
-            return (
-              <button
-                key={card.key}
-                onClick={() => { sndClick(); toggleDiff(card.levels); }}
-                onMouseEnter={sndHover}
-                style={{
-                  ...btnBase,
-                  textAlign:"left",
-                  padding:"16px 16px 14px",
-                  borderRadius:14,
-                  border:`1px solid ${allSelected ? card.color : selectedSome ? `${card.color}88` : T.border}`,
-                  background: allSelected
-                    ? `${card.color}18`
-                    : selectedSome
-                      ? `${card.color}0d`
-                      : `linear-gradient(180deg, ${T.card} 0%, ${T.bg} 100%)`,
-                  color: allSelected || selectedSome ? card.color : T.fg,
-                  boxShadow: allSelected ? `0 10px 28px ${card.color}18` : "none",
-                }}>
-                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
-                  <span style={{ fontSize:12, letterSpacing:3 }}>{card.label}</span>
-                  <span style={{
-                    width:22, height:22, borderRadius:"50%",
-                    display:"grid", placeItems:"center",
-                    border:`1px solid ${allSelected ? card.color : T.border}`,
-                    color:allSelected ? card.color : T.sub,
-                    fontSize:11, opacity:0.9,
-                  }}>
-                    {allSelected ? "✓" : selectedSome ? "•" : "+"}
-                  </span>
-                </div>
-                <div style={{ fontSize:10, letterSpacing:2, color: allSelected || selectedSome ? card.color : T.sub, opacity:0.8 }}>
-                  {card.helper}
-                </div>
-                <div style={{ fontSize:9, letterSpacing:1.4, color:T.sub, opacity:0.62, marginTop:10 }}>
-                  click to {allSelected ? "remove" : "add"} this full difficulty
-                </div>
-              </button>
-            );
-          })}
-        </div>
-
-        <div style={{
-          display:"flex", alignItems:"center", justifyContent:"space-between", gap:16, flexWrap:"wrap",
-          padding:"14px 18px", border:`1px solid ${T.border}`, borderRadius:16,
-          background:`linear-gradient(180deg, ${T.card} 0%, ${T.bg} 100%)`,
-        }}>
-          <div style={{ textAlign:"left" }}>
-            <div style={{ color:T.fg, fontSize:12, letterSpacing:3, textTransform:"uppercase" }}>
-              selected run
-            </div>
-            <div style={{ color:T.sub, fontSize:10, letterSpacing:2, marginTop:6, opacity:0.7 }}>
-              {playlistIds.length === 0
-                ? "choose a difficulty card or tap individual levels below"
-                : `${selectedCount} round${selectedCount > 1 ? "s" : ""} queued${settings.skipWarmup ? "" : " including warm up"}`}
-            </div>
-          </div>
-          <button onClick={startPlaylist}
-            disabled={playlistIds.length === 0}
-            onMouseEnter={playlistIds.length > 0 ? sndHover : undefined}
-            style={{
-              background: playlistIds.length > 0 ? "#00ffcc" : `${T.border}66`,
-              border:"none",
-              color: playlistIds.length > 0 ? "#000" : T.sub,
-              padding:"13px 34px",
-              fontSize:13,
-              letterSpacing:5,
-              textTransform:"uppercase",
-              cursor: playlistIds.length > 0 ? "pointer" : "not-allowed",
-              fontFamily:"'Courier New', monospace",
-              fontWeight:"bold",
-              borderRadius:10,
-              transition:"background 0.15s",
-              opacity: playlistIds.length > 0 ? 1 : 0.7,
-            }}>
-            play
-          </button>
-        </div>
-      </div>
-
-      <div style={{ width:"min(860px, calc(100vw - 32px))", textAlign:"left", marginBottom:20 }}>
-        {diffSections.map(sec => {
-          const dc = DIFF[sec.key];
-          const secIds = sec.levels.map(l => l.id);
-          const allTicked = secIds.length > 0 && secIds.every(id => playlistIds.includes(id));
-          return (
-            <div key={sec.key} style={{ marginBottom:18,
-              borderRadius:16,
-              background:`linear-gradient(180deg, ${T.card} 0%, ${T.bg} 100%)`,
-              border:`1px solid ${allTicked ? `${dc.color}55` : T.border}`,
-              boxShadow: allTicked ? `0 12px 30px ${dc.color}10` : "none",
-              transition:"border-color 0.2s, box-shadow 0.2s",
-              padding:"14px 16px 8px" }}>
-              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between",
-                marginBottom:10, paddingBottom:10,
-                borderBottom:`1px solid ${allTicked ? dc.color + "40" : dc.dim}`,
-                transition:"border-color 0.2s" }}>
-                <button
-                  onClick={()=>{ sndClick(); toggleDiff(sec.levels); }}
-                  onMouseEnter={sndHover}
-                  style={{
-                    background:"transparent",
-                    border:"none",
-                    padding:0,
-                    display:"flex",
-                    alignItems:"center",
-                    gap:10,
-                    cursor:"pointer",
-                    textAlign:"left",
-                  }}>
-                  <span
-                    aria-hidden="true"
-                    style={{
-                      width:20,
-                      height:20,
-                      borderRadius:6,
-                      border:`1px solid ${allTicked ? dc.color : T.border}`,
-                      display:"grid",
-                      placeItems:"center",
-                      color:dc.color,
-                      fontSize:12,
-                      opacity:allTicked ? 1 : 0.65,
-                      background: allTicked ? `${dc.color}18` : "transparent",
-                    }}>
-                    {allTicked ? "✓" : ""}
-                  </span>
-                  <span style={{ fontSize:10, letterSpacing:4, color:dc.color, opacity:0.95 }}>
-                    {sec.label}
-                  </span>
-                  <span style={{ fontSize:9, letterSpacing:2, color:T.sub, opacity:0.6 }}>
-                    click header to {allTicked ? "clear" : "select"} all
-                  </span>
-                </button>
-                <span style={{ fontSize:9, letterSpacing:2, color:dc.color, opacity:0.5 }}>
-                  max {maxSpeedLabel[sec.key]}
-                </span>
-              </div>
-
-              {sec.levels.map(lv => {
-                const selected = playlistIds.includes(lv.id);
-                return (
-                  <button key={lv.id} onClick={()=>{ sndClick(); toggleLevel(lv.id); }}
-                    onMouseEnter={sndHover}
-                    style={{ display:"grid", gridTemplateColumns:"22px minmax(120px, 170px) 1fr",
-                      alignItems:"center", gap:"0 12px",
-                      width:"100%",
-                      padding:"11px 12px", borderBottom:`1px solid ${T.border}`,
-                      cursor:"pointer",
-                      background: selected ? `${dc.color}11` : "transparent",
-                      border:"none",
-                      borderRadius:10,
-                      transition:"background 0.15s" }}>
-                    <span style={{
-                      width:18, height:18, borderRadius:"50%",
-                      border:`1px solid ${selected ? dc.color : T.border}`,
-                      display:"grid", placeItems:"center",
-                      color:dc.color, fontSize:10, opacity:selected ? 1 : 0.6,
-                    }}>
-                      {selected ? "✓" : lv.warmup ? "*" : ""}
-                    </span>
-                    <span style={{ color: selected ? T.fg : T.sub, fontSize:12, letterSpacing:1,
-                      whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis",
-                      transition:"color 0.2s", textAlign:"left" }}>{lv.label}</span>
-                    <span style={{ color:T.fg, fontSize:10,
-                      opacity: selected ? 0.72 : 0.42,
-                      whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis",
-                      transition:"opacity 0.2s", textAlign:"left" }}>{lv.hint}</span>
-                  </button>
-                );
-              })}
-            </div>
-          );
-        })}
-      </div>
-
-      <p style={{ color:T.sub, fontSize:10, letterSpacing:2, marginTop:14, opacity:0.4 }}>
-        {settings.skipWarmup ? "warm up skipped" : "first round is always warm up"}
-      </p>
-
-      <div style={{ position:"fixed", bottom:12, left:"50%", transform:"translateX(-50%)",
-        fontSize:10, letterSpacing:6, color:"#00ffcc", opacity:0.45, pointerEvents:"none" }}>DEADCENTER</div>
-    </div>
-  );
-}
-
-function Result({ T, scores, levels, scoreWarmup, onReplay, onMenu }) {
+function Result({ T, scores, levels, scoreWarmup, onReplay, onMenu, previousBest, isNewBest }) {
   // exclude warmup from average unless scoreWarmup is true
   const scoredPairs = scores
     .map((s, i) => ({ s, lv: levels[i] }))
@@ -1903,7 +1379,6 @@ function Result({ T, scores, levels, scoreWarmup, onReplay, onMenu }) {
     ? Math.round(scoredPairs.reduce((a, { s }) => a + s, 0) / scoredPairs.length)
     : 0;
   const { label, color } = grade(avg);
-  const percentile = Math.min(99, Math.round(avg*0.82 + Math.random()*9 + 3));
 
   return (
     <div style={{ minHeight:"100vh", display:"flex", flexDirection:"column",
@@ -1955,7 +1430,11 @@ function Result({ T, scores, levels, scoreWarmup, onReplay, onMenu }) {
         })}
       </div>
 
-      <p style={{ color:T.sub, fontSize:12, marginBottom:32, opacity:0.55 }}>better than {percentile}% of players</p>
+      <p style={{ fontSize:12, marginBottom:32, opacity:0.7,
+        color: isNewBest ? "#00ffcc" : T.sub, letterSpacing: isNewBest ? 4 : 1,
+        textTransform: isNewBest ? "uppercase" : "none" }}>
+        {isNewBest ? "new personal best" : previousBest != null ? `best: ${previousBest}` : "first run — set the bar"}
+      </p>
 
       <div style={{ display:"flex", gap:12, flexWrap:"wrap", justifyContent:"center" }}>
         {[["retry",onReplay],["menu",onMenu]].map(([lbl,fn])=>(

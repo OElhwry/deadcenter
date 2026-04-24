@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 const BAR_W = 360;
@@ -18,56 +18,56 @@ const DIFF = {
 // types: h, diag, circle, 2d, chaos, blind, movingtarget, ghost, vortex,
 // sway, countercircle, eclipse, phasecircle, swaymt, ghost2d, overload, vdrop
 const WARMUP = { id: 0, label: "warm up", type: "h", speed: 2.8, diff: "easy",
-  hint: "stop on the circle", warmup: true };
+  hint: "stop the dot on the target", warmup: true };
 
 const POOL = [
   // ── EASY (5 levels) ──
   { id:1,  label: "steady",        type: "h",           speed: 6.5,   diff: "easy",
-    hint: "center — a little faster" },
+    hint: "stop the dot on the target" },
   { id:11, label: "sway",          type: "sway",        speed: 0.05,  diff: "easy",
-    hint: "smooth sine drift — release at center" },
+    hint: "dot sways — stop it in the center" },
   { id:15, label: "float",         type: "circle",      speed: 0.018, diff: "easy",
-    hint: "slow orbit — stop at 12 o'clock" },
+    hint: "stop the dot at the top of the orbit" },
   { id:16, label: "cruise",        type: "2d",          speed: 1.5,   diff: "easy",
-    hint: "slow bounce — hit the bullseye" },
+    hint: "stop the dot on the center bullseye" },
   { id:17, label: "drop",          type: "vdrop",       speed: 0.20,  diff: "easy",
-    hint: "straight fall — stop at the bottom" },
+    hint: "stop the dot at the bottom" },
 
   // ── MEDIUM (5 levels) ──
   { id:2,  label: "diagonal",      type: "diag",        speed: 0.9,   diff: "medium",
-    hint: "gravity builds — momentum hurts you" },
+    hint: "stop the dot at the bottom-right — it speeds up" },
   { id:3,  label: "orbit",         type: "circle",      speed: 0.042, diff: "medium",
-    hint: "momentum builds — stop at 12 o'clock" },
+    hint: "stop the dot at the top of the orbit" },
   { id:4,  label: "2d bounce",     type: "2d",          speed: 4.5,   diff: "medium",
-    hint: "random path, gains speed — hit the bullseye" },
+    hint: "stop the dot on the bullseye — it speeds up" },
   { id:12, label: "counter orbit", type: "countercircle", speed: 0.038, diff: "medium",
-    hint: "the target loops back — meet it at the top" },
+    hint: "target orbits too — stop on it" },
   { id:18, label: "ripple",        type: "swaymt",      speed: 0.05,  diff: "medium",
-    hint: "both drift — find the overlap" },
+    hint: "both sway — stop the dot on the target" },
 
   // ── HARD (5 levels) ──
   { id:5,  label: "chaos",         type: "chaos",       speed: 7,     diff: "hard",
-    hint: "direction snaps randomly — speed compounds" },
+    hint: "direction snaps randomly — stop in the center" },
   { id:6,  label: "crossfire",     type: "movingtarget",speed: 14,    diff: "hard",
-    precision: true, hint: "tiny moving target — track and stop" },
+    precision: true, hint: "tiny target moves fast — track and stop" },
   { id:7,  label: "blind",         type: "blind",       speed: 8,     diff: "hard",
-    hint: "gone in the dark — feel the rhythm" },
+    hint: "dot blinks out — time the rhythm" },
   { id:8,  label: "moving target", type: "movingtarget",speed: 9,     diff: "hard",
-    hint: "the target drifts — read its path" },
+    hint: "target drifts — stop the dot on it" },
   { id:13, label: "eclipse",       type: "eclipse",     speed: 10.5,  diff: "hard",
-    hint: "the target drifts while the dot blinks" },
+    hint: "target drifts, dot blinks — stop on the target" },
 
   // ── IMPOSSIBLE (5 levels) ──
   { id:9,  label: "ghost",         type: "ghost",       speed: 11,    diff: "impossible",
-    hint: "fully invisible — trust instinct" },
+    hint: "dot invisible — stop in the center" },
   { id:10, label: "vortex",        type: "vortex",      speed: 0.052, diff: "impossible",
-    hint: "spiral orbit + rotating target" },
+    hint: "orbit pulses, target rotates — stop on it" },
   { id:14, label: "phase orbit",   type: "phasecircle", speed: 0.056, diff: "impossible",
-    hint: "phasing orbit + live target — commit on instinct" },
+    hint: "orbit phases, target orbits — stop on it" },
   { id:19, label: "abyss",         type: "ghost2d",     speed: 6.0,   diff: "impossible",
-    hint: "invisible in 2d — aim blind" },
+    hint: "dot invisible in 2d — stop on the bullseye" },
   { id:20, label: "collapse",      type: "overload",    speed: 12,    diff: "impossible",
-    precision: true, hint: "chaos overloaded — precision on instinct" },
+    precision: true, hint: "chaos + moving target — stop on the target" },
 ];
 
 function pickLevels(count, skipWarmup) {
@@ -109,12 +109,26 @@ function score2D(x, y) {
   return Math.max(0, Math.min(100, Math.round(100 - Math.max(0, dist - tolerance) / (SQ / 2) * 150)));
 }
 
+// Unified score ladder used by grade(), playScore(), and ScoreFlash.
+// DEAD CENTER 90+ · SHARP 75–89 · DECENT 50–74 · SHAKY 30–49 · NEEDS WORK <30
+const SCORE_TIER = (s) =>
+  s >= 90 ? "perfect" :
+  s >= 75 ? "sharp"   :
+  s >= 50 ? "decent"  :
+  s >= 30 ? "shaky"   : "miss";
+const TIER_COLOR = {
+  perfect: "#00ffcc",
+  sharp:   "#4ade80",
+  decent:  "#f59e0b",
+  shaky:   "#ef4444",
+  miss:    "#9b1c1c",
+};
 function grade(avg) {
-  if (avg >= 90) return { label: "DEAD CENTER", color: "#00ffcc" };
-  if (avg >= 75) return { label: "SHARP",       color: "#4ade80" };
-  if (avg >= 55) return { label: "DECENT",      color: "#f59e0b" };
-  if (avg >= 35) return { label: "SHAKY",       color: "#ef4444" };
-  return               { label: "NEEDS WORK",   color: "#9b1c1c" };
+  const t = SCORE_TIER(avg);
+  return {
+    label: { perfect:"DEAD CENTER", sharp:"SHARP", decent:"DECENT", shaky:"SHAKY", miss:"NEEDS WORK" }[t],
+    color: TIER_COLOR[t],
+  };
 }
 
 // ─── THEMES ──────────────────────────────────────────────────────────────────
@@ -136,16 +150,20 @@ function playTone(ctx, freq, type="sine", dur=0.12, vol=0.15) {
 
 function playScore(ctx, score) {
   if (!ctx) return;
-  if (score >= 90) {
-    // Perfect shot — ascending fanfare
+  const tier = SCORE_TIER(score);
+  if (tier === "perfect") {
+    // 90+ — ascending fanfare
     [880, 1108, 1320, 1760].forEach((f, i) => setTimeout(() => playTone(ctx, f, "sine", 0.18, 0.12), i * 60));
-  } else if (score >= 80) {
+  } else if (tier === "sharp") {
+    // 75–89 — bright triad
     playTone(ctx, 660,"sine",0.07,0.13);
     setTimeout(()=>playTone(ctx,990,"sine",0.14,0.13),75);
     setTimeout(()=>playTone(ctx,1320,"sine",0.18,0.1),150);
-  } else if (score >= 50) {
+  } else if (tier === "decent") {
+    // 50–74 — single warm tone
     playTone(ctx, 440,"sine",0.13,0.1);
   } else {
+    // <50 — sour thud
     playTone(ctx, 160,"sawtooth",0.2,0.08);
     setTimeout(()=>playTone(ctx,130,"sawtooth",0.15,0.06),80);
   }
@@ -333,6 +351,8 @@ export default function App() {
   const [lastScore,    setLastScore]    = useState(null);
   const [showScore,    setShowScore]    = useState(false);
   const [runMeta,      setRunMeta]      = useState({ previousBest: null, isNewBest: false });
+  const [backConfirm,  setBackConfirm]  = useState(false);
+  const backConfirmRef = useRef(false);
 
   useEffect(() => { saveJSON(LS_SETTINGS, settings); }, [settings]);
   useEffect(() => { saveJSON(LS_BESTS, bestScores); }, [bestScores]);
@@ -348,15 +368,15 @@ export default function App() {
 
   // animation state
   const posRef        = useRef({ x:0, y:0, t:0, angle:-Math.PI/2, x2:BAR_W-DOT, vortAngle:0 });
-  const [posDraw, setPosDraw] = useState({ x:0, y:0, t:0, angle:-Math.PI/2, x2:BAR_W-DOT, vortAngle:0 });
   const targetXRef    = useRef(CX);   // for movingtarget
   const targetDirRef  = useRef(1);
-  const [targetXDraw, setTargetXDraw] = useState(CX);
   const vortexTargAngleRef = useRef(0); // for vortex rotating target
-  const [vortexTargAngleDraw, setVortexTargAngleDraw] = useState(0);
   const blindVisRef   = useRef(true);
-  const [blindVis, setBlindVis]       = useState(true);
   const blindTimerRef = useRef(0);
+  // Element refs for ref-driven animation — avoids per-frame React re-renders.
+  const dotElRef         = useRef(null); // the moving dot (div for HBar, SVG circle for boxes)
+  const targetElRef      = useRef(null); // horizontal moving target (SVG circles inside HBar / swaymt / overload)
+  const vortexTargElRef  = useRef(null); // circular rotating target group (vortex, countercircle, phasecircle)
   const rafRef        = useRef();
   const dirHRef       = useRef(1);
   const vel2dRef      = useRef({ vx: 1, vy: 1 });
@@ -448,63 +468,43 @@ export default function App() {
     }
     const spd = lv.speed * (hasMomentum ? momentumRef.current : 1);
 
+    // Helper: toggle a blind/ghost-style visibility timer. Mutates blindVisRef / blindTimerRef.
+    const tickBlind = (onFrames, offFrames) => {
+      blindTimerRef.current--;
+      if (blindTimerRef.current <= 0) {
+        const v = !blindVisRef.current;
+        blindVisRef.current = v;
+        blindTimerRef.current = v ? onFrames : offFrames;
+      }
+    };
+
     if (lv.type === "h" || lv.type === "blind" || lv.type === "ghost") {
       let x = p.x + spd * dirHRef.current;
       if (x >= BAR_W-DOT) { dirHRef.current=-1; x=BAR_W-DOT; }
       if (x <= 0)          { dirHRef.current= 1; x=0; }
       posRef.current = { ...p, x };
-      // blind: visible 6 frames, hidden 40 frames
-      if (lv.type === "blind") {
-        blindTimerRef.current--;
-        if (blindTimerRef.current <= 0) {
-          const v = !blindVisRef.current;
-          blindVisRef.current = v;
-          blindTimerRef.current = v ? 6 : 40;
-          setBlindVis(v);
-        }
-      }
-      // ghost: truly invisible when hidden
-      if (lv.type === "ghost") {
-        blindTimerRef.current--;
-        if (blindTimerRef.current <= 0) {
-          const v = !blindVisRef.current;
-          blindVisRef.current = v;
-          blindTimerRef.current = v ? 4 : 60;
-          setBlindVis(v);
-        }
-      }
+      if (lv.type === "blind") tickBlind(6, 40);
+      if (lv.type === "ghost") tickBlind(4, 60);
 
     } else if (lv.type === "movingtarget" || lv.type === "eclipse") {
       let x = p.x + spd * dirHRef.current;
       if (x >= BAR_W-DOT) { dirHRef.current=-1; x=BAR_W-DOT; }
       if (x <= 0)          { dirHRef.current= 1; x=0; }
-      // crossfire (precision) target moves much faster
       const tSpeed = lv.precision ? 5.5 : lv.type === "eclipse" ? 3.6 : 2.5;
       let tx = targetXRef.current + tSpeed * targetDirRef.current;
       if (tx >= BAR_W - 30) { targetDirRef.current=-1; tx=BAR_W-30; }
       if (tx <= 20)          { targetDirRef.current= 1; tx=20; }
       targetXRef.current = tx;
       posRef.current = { ...p, x };
-      setTargetXDraw(tx);
-      if (lv.type === "eclipse") {
-        blindTimerRef.current--;
-        if (blindTimerRef.current <= 0) {
-          const v = !blindVisRef.current;
-          blindVisRef.current = v;
-          blindTimerRef.current = v ? 7 : 24;
-          setBlindVis(v);
-        }
-      }
+      if (lv.type === "eclipse") tickBlind(7, 24);
 
     } else if (lv.type === "diag") {
       let t = p.t + diagSpRef.current;
-      // gravity builds, amplified by momentum
       diagSpRef.current = Math.min(diagSpRef.current + 0.08 * momentumRef.current, 20);
       if (t >= SQ - DOT) { diagSpRef.current = 0.9; t = 0; }
       posRef.current = { ...p, x:t, y:t, t };
 
     } else if (lv.type === "vdrop") {
-      // straight vertical drop — x locked to center, gravity builds gently (no momentum for easy)
       let t = p.t + diagSpRef.current;
       diagSpRef.current = Math.min(diagSpRef.current + 0.06, 18);
       if (t >= SQ - DOT) { diagSpRef.current = lv.speed; t = 0; }
@@ -535,21 +535,10 @@ export default function App() {
         y: SQ/2 + r*Math.sin(angle) - DOT/2,
       };
       const targetSpeed = lv.type === "phasecircle" ? 0.019 : 0.014;
-      const ta = (vortexTargAngleRef.current - targetSpeed + 2*Math.PI) % (2*Math.PI);
-      vortexTargAngleRef.current = ta;
-      setVortexTargAngleDraw(ta);
-      if (lv.type === "phasecircle") {
-        blindTimerRef.current--;
-        if (blindTimerRef.current <= 0) {
-          const v = !blindVisRef.current;
-          blindVisRef.current = v;
-          blindTimerRef.current = v ? 5 : 26;
-          setBlindVis(v);
-        }
-      }
+      vortexTargAngleRef.current = (vortexTargAngleRef.current - targetSpeed + 2*Math.PI) % (2*Math.PI);
+      if (lv.type === "phasecircle") tickBlind(5, 26);
 
     } else if (lv.type === "2d") {
-      // random trajectory — bounces off all walls, gains speed via momentum
       let { vx, vy } = vel2dRef.current;
       let x = p.x + vx * spd;
       let y = p.y + vy * spd;
@@ -582,27 +571,19 @@ export default function App() {
         x: SQ/2 + r*Math.cos(angle) - DOT/2,
         y: SQ/2 + r*Math.sin(angle) - DOT/2,
       };
-      // target rotates faster and in opposite direction
-      const ta = (vortexTargAngleRef.current - 0.014 + 2*Math.PI) % (2*Math.PI);
-      vortexTargAngleRef.current = ta;
-      setVortexTargAngleDraw(ta);
+      vortexTargAngleRef.current = (vortexTargAngleRef.current - 0.014 + 2*Math.PI) % (2*Math.PI);
 
     } else if (lv.type === "swaymt") {
-      // dot sways sinusoidally; target sways at a different rate + amplitude
       const t = p.t + spd;
       const amp = BAR_W / 2 - DOT / 2 - 10;
       const x = CX + amp * Math.sin(t);
-      // target uses a separate phase stored in vortexTargAngleRef, fixed rate (no momentum)
       const tPhase = (vortexTargAngleRef.current + 0.031 + 2 * Math.PI) % (2 * Math.PI);
       vortexTargAngleRef.current = tPhase;
       const tAmp = BAR_W / 2 - DOT / 2 - 30;
-      const tx = CX + tAmp * Math.sin(tPhase);
-      targetXRef.current = tx;
+      targetXRef.current = CX + tAmp * Math.sin(tPhase);
       posRef.current = { ...p, t, x };
-      setTargetXDraw(tx);
 
     } else if (lv.type === "ghost2d") {
-      // 2D bounce but nearly invisible — same physics as 2d, ghost-level blink (4 on / 60 off)
       let { vx, vy } = vel2dRef.current;
       let x = p.x + vx * spd;
       let y = p.y + vy * spd;
@@ -612,16 +593,9 @@ export default function App() {
       if (y <= 0)       { vy =  Math.abs(vy); y = 0; }
       vel2dRef.current = { vx, vy };
       posRef.current = { ...p, x, y };
-      blindTimerRef.current--;
-      if (blindTimerRef.current <= 0) {
-        const v = !blindVisRef.current;
-        blindVisRef.current = v;
-        blindTimerRef.current = v ? 4 : 60;
-        setBlindVis(v);
-      }
+      tickBlind(4, 60);
 
     } else if (lv.type === "overload") {
-      // extreme chaos: snaps every 2–6 frames, speed 12–25 px/frame + precision moving target
       chaosTimerRef.current--;
       if (chaosTimerRef.current <= 0) {
         chaosDirRef.current  = Math.random() < 0.5 ? 1 : -1;
@@ -637,10 +611,26 @@ export default function App() {
       if (tx >= BAR_W - 30) { targetDirRef.current=-1; tx=BAR_W-30; }
       if (tx <= 20)          { targetDirRef.current= 1; tx=20; }
       targetXRef.current = tx;
-      setTargetXDraw(tx);
     }
 
-    setPosDraw({ ...posRef.current });
+    // ── Write transforms directly to DOM (no React re-render per frame) ──
+    const q = posRef.current;
+    if (dotElRef.current) {
+      dotElRef.current.style.transform = `translate(${q.x}px, ${q.y}px)`;
+      dotElRef.current.style.opacity = blindVisRef.current ? "1" : "0";
+    }
+    if (targetElRef.current) {
+      // Horizontal moving target — only x matters, y stays on the bar centerline.
+      targetElRef.current.style.transform = `translate(${targetXRef.current}px, 0)`;
+    }
+    if (vortexTargElRef.current) {
+      // Rotating target on circular tracks — compute x,y from angle around center.
+      const r = SQ/2 - DOT - (lv.type === "vortex" ? 4 : 2);
+      const tx = SQ/2 + r*Math.cos(vortexTargAngleRef.current) - DOT/2;
+      const ty = SQ/2 + r*Math.sin(vortexTargAngleRef.current) - DOT/2;
+      vortexTargElRef.current.style.transform = `translate(${tx}px, ${ty}px)`;
+    }
+
     if (activeRef.current) rafRef.current = requestAnimationFrame(animate);
   }, []);
 
@@ -655,10 +645,14 @@ export default function App() {
     vel2dRef.current = { vx: Math.cos(ang), vy: Math.sin(ang) };
     targetXRef.current  = CX; targetDirRef.current=1;
     vortexTargAngleRef.current = -Math.PI/2;
-    blindVisRef.current = true; blindTimerRef.current=8; setBlindVis(true);
+    blindVisRef.current = true; blindTimerRef.current=8;
     lvIdxRef.current    = idx;
     activeRef.current   = true;
     frameRef.current    = 0;
+    // Clear any stale transform on persistent element refs before the renderer swaps.
+    if (dotElRef.current)        dotElRef.current.style.transform        = "translate(0, 0)";
+    if (targetElRef.current)     targetElRef.current.style.transform     = "translate(0, 0)";
+    if (vortexTargElRef.current) vortexTargElRef.current.style.transform = "translate(0, 0)";
     setLvIdx(idx);
     setPlaying(true);
     setShowScore(false);
@@ -728,6 +722,43 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [screen, handleStop]);
 
+  // Apply the initial transform for dot/target before the browser paints the new level renderer.
+  // Without this, elements flash at their origin for one frame before animate() fires.
+  useLayoutEffect(() => {
+    if (screen !== "play") return;
+    const p = posRef.current;
+    if (dotElRef.current) {
+      dotElRef.current.style.transform = `translate(${p.x}px, ${p.y}px)`;
+      dotElRef.current.style.opacity = blindVisRef.current ? "1" : "0";
+    }
+    if (targetElRef.current) {
+      targetElRef.current.style.transform = `translate(${targetXRef.current}px, 0)`;
+    }
+    if (vortexTargElRef.current) {
+      const lv = levelsRef.current[lvIdx];
+      const r = SQ/2 - DOT - (lv?.type === "vortex" ? 4 : 2);
+      const tx = SQ/2 + r*Math.cos(vortexTargAngleRef.current) - DOT/2;
+      const ty = SQ/2 + r*Math.sin(vortexTargAngleRef.current) - DOT/2;
+      vortexTargElRef.current.style.transform = `translate(${tx}px, ${ty}px)`;
+    }
+  }, [lvIdx, screen]);
+
+  // Pause the RAF when the tab is hidden so frame timing doesn't drift / momentum doesn't tick offscreen.
+  useEffect(() => {
+    const onVis = () => {
+      if (document.hidden) {
+        if (activeRef.current) {
+          cancelAnimationFrame(rafRef.current);
+          // leave activeRef true so resume knows to restart
+        }
+      } else if (screen === "play" && activeRef.current) {
+        rafRef.current = requestAnimationFrame(animate);
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [screen, animate]);
+
   // Start/stop menu music when screen changes
   useEffect(() => {
     const shouldPlayLoop = (screen === "menu" || screen === "play") && !mutedRef.current && !musicPaused;
@@ -777,6 +808,8 @@ export default function App() {
   const goMenu = useCallback(() => {
     cancelAnimationFrame(rafRef.current);
     activeRef.current = false;
+    backConfirmRef.current = false;
+    setBackConfirm(false);
     if (droneStopRef.current) { droneStopRef.current(); droneStopRef.current = null; }
     setScreen("menu");
   }, []);
@@ -820,15 +853,25 @@ export default function App() {
         WebkitBackdropFilter:"blur(8px)", zIndex:10,
         borderBottom:`1px solid ${T.border}`,
       }}>
-        {/* back arrow */}
-        <button onClick={e => { e.stopPropagation(); goMenu(); }}
-          style={{ background:"none", border:`1px solid ${T.border}`, color:T.sub, cursor:"pointer",
-            fontSize:13, lineHeight:1, padding:"10px 14px", borderRadius:4,
-            fontFamily:"'Courier New', monospace", opacity:0.65, minHeight:44,
-            transition:"opacity 0.15s, color 0.15s, border-color 0.15s" }}
-          onMouseEnter={e=>{ e.currentTarget.style.opacity="1"; e.currentTarget.style.color="#00ffcc"; e.currentTarget.style.borderColor="#00ffcc"; }}
-          onMouseLeave={e=>{ e.currentTarget.style.opacity="0.65"; e.currentTarget.style.color=T.sub; e.currentTarget.style.borderColor=T.border; }}>
-          ←
+        {/* back arrow — two-tap confirm during play so a mis-tap doesn't nuke the run */}
+        <button onClick={e => {
+            e.stopPropagation();
+            if (backConfirmRef.current) { goMenu(); return; }
+            backConfirmRef.current = true;
+            setBackConfirm(true);
+            setTimeout(() => { backConfirmRef.current = false; setBackConfirm(false); }, 2000);
+          }}
+          style={{ background: backConfirm ? "#ef4444" : "none",
+            border:`1px solid ${backConfirm ? "#ef4444" : T.border}`,
+            color: backConfirm ? "#000" : T.sub, cursor:"pointer",
+            fontSize: backConfirm ? 10 : 13, letterSpacing: backConfirm ? 2 : 0,
+            lineHeight:1, padding:"10px 14px", borderRadius:4,
+            fontFamily:"'Courier New', monospace",
+            opacity: backConfirm ? 1 : 0.65, minHeight:44,
+            transition:"opacity 0.15s, color 0.15s, border-color 0.15s, background 0.15s" }}
+          onMouseEnter={e=>{ if (!backConfirm) { e.currentTarget.style.opacity="1"; e.currentTarget.style.color="#00ffcc"; e.currentTarget.style.borderColor="#00ffcc"; } }}
+          onMouseLeave={e=>{ if (!backConfirm) { e.currentTarget.style.opacity="0.65"; e.currentTarget.style.color=T.sub; e.currentTarget.style.borderColor=T.border; } }}>
+          {backConfirm ? "QUIT?" : "←"}
         </button>
         {/* level progress dots — centred */}
         <div style={{ flex:1, display:"flex", justifyContent:"center", gap:8 }}>
@@ -855,27 +898,27 @@ export default function App() {
 
       {/* level renderer */}
       {(lv.type==="h"||lv.type==="chaos"||lv.type==="blind"||lv.type==="ghost"||lv.type==="sway") && (
-        <ScaledHBar pos={posDraw} playing={playing} lv={lv} T={T} blindVis={blindVis} targetX={CX} />
+        <ScaledHBar playing={playing} lv={lv} T={T} dotRef={dotElRef} />
       )}
       {(lv.type==="movingtarget" || lv.type==="eclipse") && (
-        <ScaledHBar pos={posDraw} playing={playing} lv={lv} T={T} blindVis={lv.type==="eclipse" ? blindVis : true} targetX={targetXDraw} moving />
+        <ScaledHBar playing={playing} lv={lv} T={T} dotRef={dotElRef} targetRef={targetElRef} moving />
       )}
-      {lv.type==="diag"   && <DiagBox      pos={posDraw} playing={playing} T={T} />}
-      {lv.type==="vdrop"  && <VDropBox     pos={posDraw} playing={playing} T={T} />}
-      {lv.type==="circle" && <CircleBox   pos={posDraw} playing={playing} T={T} />}
+      {lv.type==="diag"   && <DiagBox   playing={playing} T={T} dotRef={dotElRef} />}
+      {lv.type==="vdrop"  && <VDropBox  playing={playing} T={T} dotRef={dotElRef} />}
+      {lv.type==="circle" && <CircleBox playing={playing} T={T} dotRef={dotElRef} />}
       {(lv.type==="countercircle" || lv.type==="phasecircle") && (
-        <CircleBox pos={posDraw} playing={playing} T={T} targetAngle={vortexTargAngleDraw} blindVis={lv.type==="phasecircle" ? blindVis : true} />
+        <CircleBox playing={playing} T={T} dotRef={dotElRef} vortexTargRef={vortexTargElRef} />
       )}
-      {lv.type==="2d"     && <Box2D       pos={posDraw} playing={playing} T={T} />}
-      {lv.type==="vortex" && <VortexBox   pos={posDraw} playing={playing} T={T} targetAngle={vortexTargAngleDraw} />}
+      {lv.type==="2d"     && <Box2D   playing={playing} T={T} dotRef={dotElRef} />}
+      {lv.type==="vortex" && <VortexBox playing={playing} T={T} dotRef={dotElRef} vortexTargRef={vortexTargElRef} />}
       {lv.type==="swaymt" && (
-        <ScaledHBar pos={posDraw} playing={playing} lv={lv} T={T} blindVis={true} targetX={targetXDraw} moving />
+        <ScaledHBar playing={playing} lv={lv} T={T} dotRef={dotElRef} targetRef={targetElRef} moving />
       )}
       {lv.type==="ghost2d" && (
-        <Box2D pos={posDraw} playing={playing} T={T} blindVis={blindVis} />
+        <Box2D playing={playing} T={T} dotRef={dotElRef} />
       )}
       {lv.type==="overload" && (
-        <ScaledHBar pos={posDraw} playing={playing} lv={lv} T={T} blindVis={true} targetX={targetXDraw} moving />
+        <ScaledHBar playing={playing} lv={lv} T={T} dotRef={dotElRef} targetRef={targetElRef} moving />
       )}
 
       {/* score / hint */}
@@ -887,16 +930,18 @@ export default function App() {
             : null}
       </div>
       <p style={{ color:T.fg, fontSize:13, marginTop:4, letterSpacing:1, opacity:0.75 }}>{lv.hint}</p>
-      {/* momentum warning */}
-      {lv.diff !== "easy" && !lv.warmup && momentumDraw > 1.2 && playing && (
-        <p style={{
-          color: momentumDraw > 2 ? "#ef4444" : "#f59e0b",
-          fontSize: 10, letterSpacing: 3, textTransform:"uppercase",
-          marginTop: 8, opacity: 0.9, margin:"8px 0 0"
-        }}>
-          {momentumDraw > 2 ? "⚡ momentum critical" : "↑ momentum building"}
-        </p>
-      )}
+      {/* momentum warning — fixed-height slot so its appearance doesn't shift layout */}
+      <div style={{ height: 18, marginTop: 8, display:"flex", alignItems:"center", justifyContent:"center" }}>
+        {lv.diff !== "easy" && !lv.warmup && momentumDraw > 1.2 && playing && (
+          <span style={{
+            color: momentumDraw > 2 ? "#ef4444" : "#f59e0b",
+            fontSize: 10, letterSpacing: 3, textTransform:"uppercase",
+            opacity: 0.9,
+          }}>
+            {momentumDraw > 2 ? "momentum critical" : "momentum building"}
+          </span>
+        )}
+      </div>
 
     </div>
   );
@@ -930,32 +975,66 @@ function DeadcenterLogo({ T, size = 22 }) {
 }
 
 // ─── LEVEL RENDERERS ─────────────────────────────────────────────────────────
+// All renderers share one square frame (PlayField). Dots/targets are drawn at
+// origin with ref-attached elements; animate() writes style.transform directly
+// to move them — no React re-renders per frame.
 
-function HBar({ pos, playing, lv, T, blindVis, targetX, moving }) {
+const PLAY_W = 360;
+function PlayField({ children }) {
+  return (
+    <div style={{
+      width: `min(${PLAY_W}px, calc(100vw - 32px))`,
+      aspectRatio: "1 / 1",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      position: "relative",
+    }}>
+      {children}
+    </div>
+  );
+}
+
+// Shared SVG dot. Renders at origin — transform positions it.
+function SvgDot({ playing, T, dotRef, glow = 5 }) {
+  return (
+    <circle cx={DOT/2} cy={DOT/2} r={DOT/2}
+      ref={dotRef}
+      fill={playing ? "#00ffcc" : T.sub}
+      style={{
+        filter: playing ? `drop-shadow(0 0 ${glow}px #00ffcc)` : "none",
+        transition: "fill 0.2s, opacity 0.15s",
+        willChange: "transform, opacity",
+      }} />
+  );
+}
+
+function HBar({ playing, lv, T, dotRef, targetRef, moving }) {
   const isPrecision = lv.precision;
   const tW  = isPrecision ? 4 : 18;
   const tCol = moving ? "#f59e0b" : isPrecision ? "#ef4444" : T.fg;
-  const dotOpacity = blindVis ? 1 : 0;
-
+  // Static target is rendered at the bar center when not moving.
   return (
     <div style={{ position:"relative", width:BAR_W, height:32 }}>
-      {/* track */}
       <div style={{ position:"absolute", top:9, left:0, right:0, height:14, background:T.track, borderRadius:20 }} />
-      {/* target circle */}
       <svg style={{ position:"absolute", top:0, left:0, pointerEvents:"none" }} width={BAR_W} height={32}>
-        <circle cx={targetX + DOT/2} cy={16} r={tW/2 + 4}
-          fill="none" stroke={tCol} strokeWidth="1.5" opacity="0.6" />
-        <circle cx={targetX + DOT/2} cy={16} r={2}
-          fill={tCol} opacity="0.5" />
+        {moving ? (
+          <g ref={targetRef} style={{ willChange: "transform" }}>
+            <circle cx={DOT/2} cy={16} r={tW/2 + 4} fill="none" stroke={tCol} strokeWidth="1.5" opacity="0.6" />
+            <circle cx={DOT/2} cy={16} r={2} fill={tCol} opacity="0.5" />
+          </g>
+        ) : (
+          <g>
+            <circle cx={CX + DOT/2} cy={16} r={tW/2 + 4} fill="none" stroke={tCol} strokeWidth="1.5" opacity="0.6" />
+            <circle cx={CX + DOT/2} cy={16} r={2} fill={tCol} opacity="0.5" />
+          </g>
+        )}
       </svg>
-      {/* dot */}
-      <div style={{
-        position:"absolute", top:9, left:pos.x,
+      <div ref={dotRef} style={{
+        position:"absolute", top:9, left:0,
         width:DOT, height:DOT, borderRadius:"50%",
         background: playing ? "#00ffcc" : T.sub,
-        opacity: dotOpacity,
-        boxShadow: playing && blindVis ? "0 0 10px #00ffccaa" : "none",
-        transition: "background 0.2s",
+        boxShadow: playing ? "0 0 10px #00ffccaa" : "none",
+        transition: "background 0.2s, opacity 0.15s",
+        willChange: "transform, opacity",
       }} />
     </div>
   );
@@ -965,7 +1044,7 @@ function ScaledHBar(props) {
   const [scale, setScale] = useState(1);
   useEffect(() => {
     const update = () => {
-      const avail = window.innerWidth - 32;
+      const avail = Math.min(window.innerWidth - 32, PLAY_W);
       setScale(avail < BAR_W ? avail / BAR_W : 1);
     };
     update();
@@ -973,126 +1052,128 @@ function ScaledHBar(props) {
     return () => window.removeEventListener("resize", update);
   }, []);
   return (
-    <div style={{ width: Math.round(BAR_W * scale), height: Math.round(32 * scale) }}>
-      <div style={{ transform:`scale(${scale})`, transformOrigin:"top left", width:BAR_W, height:32 }}>
-        <HBar {...props} />
+    <PlayField>
+      <div style={{ width: Math.round(BAR_W * scale), height: Math.round(32 * scale) }}>
+        <div style={{ transform:`scale(${scale})`, transformOrigin:"top left", width:BAR_W, height:32 }}>
+          <HBar {...props} />
+        </div>
       </div>
-    </div>
+    </PlayField>
   );
 }
 
-function DiagBox({ pos, playing, T }) {
+const SVG_STYLE = { display:"block", width:"100%", height:"100%" };
+
+function DiagBox({ playing, T, dotRef }) {
   const end = SQ - DOT;
   const ex = end + DOT/2, ey = end + DOT/2;
   return (
-    <svg viewBox={`0 0 ${SQ} ${SQ}`} style={{ display:"block", width:`min(${SQ}px, calc(100vw - 32px))`, height:"auto" }}>
-      <circle cx={SQ/2} cy={SQ/2} r={SQ/2-3} fill="none" stroke={T.border} strokeWidth="1" strokeDasharray="2 8" />
-      <line x1={DOT/2} y1={DOT/2} x2={ex} y2={ey} stroke={T.track} strokeWidth="2" strokeDasharray="6 5" />
-      <circle cx={DOT/2} cy={DOT/2} r={3} fill={T.border} />
-      {/* target ring */}
-      <circle cx={ex} cy={ey} r={14} fill="none" stroke={T.fg} strokeWidth="1.5" opacity="0.4" />
-      <circle cx={ex} cy={ey} r={6}  fill="none" stroke={T.fg} strokeWidth="1"   opacity="0.25" />
-      <circle cx={ex} cy={ey} r={2}  fill={T.fg} opacity="0.6" />
-      {/* dot */}
-      <circle cx={pos.x+DOT/2} cy={pos.y+DOT/2} r={DOT/2}
-        fill={playing?"#00ffcc":T.sub}
-        style={{ filter: playing?"drop-shadow(0 0 5px #00ffcc)":"none", transition:"fill 0.2s" }} />
-    </svg>
+    <PlayField>
+      <svg viewBox={`0 0 ${SQ} ${SQ}`} style={SVG_STYLE}>
+        <circle cx={SQ/2} cy={SQ/2} r={SQ/2-3} fill="none" stroke={T.border} strokeWidth="1" strokeDasharray="2 8" />
+        <line x1={DOT/2} y1={DOT/2} x2={ex} y2={ey} stroke={T.track} strokeWidth="2" strokeDasharray="6 5" />
+        <circle cx={DOT/2} cy={DOT/2} r={3} fill={T.border} />
+        <circle cx={ex} cy={ey} r={14} fill="none" stroke={T.fg} strokeWidth="1.5" opacity="0.4" />
+        <circle cx={ex} cy={ey} r={6}  fill="none" stroke={T.fg} strokeWidth="1"   opacity="0.25" />
+        <circle cx={ex} cy={ey} r={2}  fill={T.fg} opacity="0.6" />
+        <SvgDot playing={playing} T={T} dotRef={dotRef} />
+      </svg>
+    </PlayField>
   );
 }
 
-function VDropBox({ pos, playing, T }) {
+function VDropBox({ playing, T, dotRef }) {
   const cx = SQ / 2;
-  const ty = SQ - DOT / 2; // target center y (bottom)
+  const ty = SQ - DOT / 2;
   return (
-    <svg viewBox={`0 0 ${SQ} ${SQ}`} style={{ display:"block", width:`min(${SQ}px, calc(100vw - 32px))`, height:"auto" }}>
-      <circle cx={cx} cy={SQ/2} r={SQ/2-3} fill="none" stroke={T.border} strokeWidth="1" strokeDasharray="2 8" />
-      <line x1={cx} y1={DOT/2} x2={cx} y2={ty} stroke={T.track} strokeWidth="2" strokeDasharray="6 5" />
-      <circle cx={cx} cy={DOT/2} r={3} fill={T.border} />
-      {/* target ring at bottom */}
-      <circle cx={cx} cy={ty} r={14} fill="none" stroke={T.fg} strokeWidth="1.5" opacity="0.4" />
-      <circle cx={cx} cy={ty} r={6}  fill="none" stroke={T.fg} strokeWidth="1"   opacity="0.25" />
-      <circle cx={cx} cy={ty} r={2}  fill={T.fg} opacity="0.6" />
-      {/* dot */}
-      <circle cx={pos.x+DOT/2} cy={pos.y+DOT/2} r={DOT/2}
-        fill={playing?"#00ffcc":T.sub}
-        style={{ filter:playing?"drop-shadow(0 0 5px #00ffcc)":"none", transition:"fill 0.2s" }} />
-    </svg>
+    <PlayField>
+      <svg viewBox={`0 0 ${SQ} ${SQ}`} style={SVG_STYLE}>
+        <circle cx={cx} cy={SQ/2} r={SQ/2-3} fill="none" stroke={T.border} strokeWidth="1" strokeDasharray="2 8" />
+        <line x1={cx} y1={DOT/2} x2={cx} y2={ty} stroke={T.track} strokeWidth="2" strokeDasharray="6 5" />
+        <circle cx={cx} cy={DOT/2} r={3} fill={T.border} />
+        <circle cx={cx} cy={ty} r={14} fill="none" stroke={T.fg} strokeWidth="1.5" opacity="0.4" />
+        <circle cx={cx} cy={ty} r={6}  fill="none" stroke={T.fg} strokeWidth="1"   opacity="0.25" />
+        <circle cx={cx} cy={ty} r={2}  fill={T.fg} opacity="0.6" />
+        <SvgDot playing={playing} T={T} dotRef={dotRef} />
+      </svg>
+    </PlayField>
   );
 }
 
-function CircleBox({ pos, playing, T, targetAngle = -Math.PI / 2, blindVis = true }) {
+function CircleBox({ playing, T, dotRef, vortexTargRef }) {
   const cx=SQ/2, cy=SQ/2, r=SQ/2-DOT-2;
-  const tx=cx + r*Math.cos(targetAngle), ty=cy + r*Math.sin(targetAngle);
+  // Static target at 12 o'clock when vortexTargRef isn't supplied.
+  const staticTx = cx, staticTy = cy - r;
   return (
-    <svg viewBox={`0 0 ${SQ} ${SQ}`} style={{ display:"block", width:`min(${SQ}px, calc(100vw - 32px))`, height:"auto" }}>
-      {/* orbit track */}
-      <circle cx={cx} cy={cy} r={r} fill="none" stroke={T.track} strokeWidth="2" strokeDasharray="3 6" />
-      {/* cardinal ticks */}
-      {[0,1,2,3].map(i => {
-        const a=i*Math.PI/2 - Math.PI/2;
-        return <circle key={i} cx={cx+r*Math.cos(a)} cy={cy+r*Math.sin(a)} r={2} fill={T.sub} opacity="0.25" />;
-      })}
-      {/* target ring at 12 o'clock */}
-      <circle cx={tx} cy={ty} r={13} fill="none" stroke={T.fg} strokeWidth="1.5" opacity="0.45" />
-      <circle cx={tx} cy={ty} r={5}  fill="none" stroke={T.fg} strokeWidth="1"   opacity="0.2" />
-      <circle cx={tx} cy={ty} r={2}  fill={T.fg} opacity="0.55" />
-      <circle cx={cx} cy={cy} r={2}  fill={T.border} />
-      {/* dot */}
-      <circle cx={pos.x+DOT/2} cy={pos.y+DOT/2} r={DOT/2}
-        fill={playing?"#00ffcc":T.sub}
-        opacity={blindVis ? 1 : 0}
-        style={{ filter:playing && blindVis ? "drop-shadow(0 0 5px #00ffcc)" : "none", transition:"fill 0.2s, opacity 0.2s" }} />
-    </svg>
+    <PlayField>
+      <svg viewBox={`0 0 ${SQ} ${SQ}`} style={SVG_STYLE}>
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke={T.track} strokeWidth="2" strokeDasharray="3 6" />
+        {[0,1,2,3].map(i => {
+          const a=i*Math.PI/2 - Math.PI/2;
+          return <circle key={i} cx={cx+r*Math.cos(a)} cy={cy+r*Math.sin(a)} r={2} fill={T.sub} opacity="0.25" />;
+        })}
+        {vortexTargRef ? (
+          <g ref={vortexTargRef} style={{ willChange: "transform" }}>
+            <circle cx={DOT/2} cy={DOT/2} r={13} fill="none" stroke={T.fg} strokeWidth="1.5" opacity="0.45" />
+            <circle cx={DOT/2} cy={DOT/2} r={5}  fill="none" stroke={T.fg} strokeWidth="1"   opacity="0.2" />
+            <circle cx={DOT/2} cy={DOT/2} r={2}  fill={T.fg} opacity="0.55" />
+          </g>
+        ) : (
+          <g>
+            <circle cx={staticTx} cy={staticTy} r={13} fill="none" stroke={T.fg} strokeWidth="1.5" opacity="0.45" />
+            <circle cx={staticTx} cy={staticTy} r={5}  fill="none" stroke={T.fg} strokeWidth="1"   opacity="0.2" />
+            <circle cx={staticTx} cy={staticTy} r={2}  fill={T.fg} opacity="0.55" />
+          </g>
+        )}
+        <circle cx={cx} cy={cy} r={2}  fill={T.border} />
+        <SvgDot playing={playing} T={T} dotRef={dotRef} />
+      </svg>
+    </PlayField>
   );
 }
 
-function Box2D({ pos, playing, T, blindVis = true }) {
+function Box2D({ playing, T, dotRef }) {
   const cx=SQ/2, cy=SQ/2;
   return (
-    <svg viewBox={`0 0 ${SQ} ${SQ}`} style={{ display:"block", width:`min(${SQ}px, calc(100vw - 32px))`, height:"auto" }}>
-      <rect x={1} y={1} width={SQ-2} height={SQ-2} rx={10} fill="none" stroke={T.border} strokeWidth="1" />
-      <line x1={cx} y1={4}    x2={cx} y2={SQ-4} stroke={T.track} strokeWidth="1" />
-      <line x1={4}  y1={cy}   x2={SQ-4} y2={cy} stroke={T.track} strokeWidth="1" />
-      <circle cx={cx} cy={cy} r={22} fill="none" stroke={T.fg} strokeWidth="1"   opacity="0.15" />
-      <circle cx={cx} cy={cy} r={13} fill="none" stroke={T.fg} strokeWidth="1.5" opacity="0.35" />
-      <circle cx={cx} cy={cy} r={5}  fill="none" stroke={T.fg} strokeWidth="1"   opacity="0.25" />
-      <circle cx={cx} cy={cy} r={2}  fill={T.fg} opacity="0.55" />
-      <circle cx={pos.x+DOT/2} cy={pos.y+DOT/2} r={DOT/2}
-        fill={playing?"#00ffcc":T.sub}
-        opacity={blindVis ? 1 : 0}
-        style={{ filter:playing && blindVis?"drop-shadow(0 0 6px #00ffcc)":"none", transition:"fill 0.2s, opacity 0.2s" }} />
-    </svg>
+    <PlayField>
+      <svg viewBox={`0 0 ${SQ} ${SQ}`} style={SVG_STYLE}>
+        <rect x={1} y={1} width={SQ-2} height={SQ-2} rx={10} fill="none" stroke={T.border} strokeWidth="1" />
+        <line x1={cx} y1={4}    x2={cx} y2={SQ-4} stroke={T.track} strokeWidth="1" />
+        <line x1={4}  y1={cy}   x2={SQ-4} y2={cy} stroke={T.track} strokeWidth="1" />
+        <circle cx={cx} cy={cy} r={22} fill="none" stroke={T.fg} strokeWidth="1"   opacity="0.15" />
+        <circle cx={cx} cy={cy} r={13} fill="none" stroke={T.fg} strokeWidth="1.5" opacity="0.35" />
+        <circle cx={cx} cy={cy} r={5}  fill="none" stroke={T.fg} strokeWidth="1"   opacity="0.25" />
+        <circle cx={cx} cy={cy} r={2}  fill={T.fg} opacity="0.55" />
+        <SvgDot playing={playing} T={T} dotRef={dotRef} glow={6} />
+      </svg>
+    </PlayField>
   );
 }
 
-function VortexBox({ pos, playing, T, targetAngle }) {
-  const cx=SQ/2, cy=SQ/2, r=SQ/2-DOT-4;
-  const tx = cx + r*Math.cos(targetAngle) - DOT/2;
-  const ty = cy + r*Math.sin(targetAngle) - DOT/2;
+function VortexBox({ playing, T, dotRef, vortexTargRef }) {
+  const cx=SQ/2, cy=SQ/2;
   return (
-    <svg viewBox={`0 0 ${SQ} ${SQ}`} style={{ display:"block", width:`min(${SQ}px, calc(100vw - 32px))`, height:"auto" }}>
-      {/* concentric rings */}
-      {[0.25,0.5,0.75,1].map((frac,i) => (
-        <circle key={i} cx={cx} cy={cy} r={(SQ/2-DOT-4)*frac}
-          fill="none" stroke={T.track} strokeWidth="1" opacity={0.3+i*0.1} strokeDasharray="2 7" />
-      ))}
-      {/* rotating target ring */}
-      <circle cx={tx+DOT/2} cy={ty+DOT/2} r={13} fill="none" stroke="#f59e0b" strokeWidth="1.5" opacity="0.5" />
-      <circle cx={tx+DOT/2} cy={ty+DOT/2} r={4}  fill="none" stroke="#f59e0b" strokeWidth="1"   opacity="0.3" />
-      <circle cx={tx+DOT/2} cy={ty+DOT/2} r={2}  fill="#f59e0b" opacity="0.6" />
-      <circle cx={cx} cy={cy} r={2} fill={T.border} />
-      {/* dot */}
-      <circle cx={pos.x+DOT/2} cy={pos.y+DOT/2} r={DOT/2}
-        fill={playing?"#00ffcc":T.sub}
-        style={{ filter:playing?"drop-shadow(0 0 5px #00ffcc)":"none", transition:"fill 0.2s" }} />
-    </svg>
+    <PlayField>
+      <svg viewBox={`0 0 ${SQ} ${SQ}`} style={SVG_STYLE}>
+        {[0.25,0.5,0.75,1].map((frac,i) => (
+          <circle key={i} cx={cx} cy={cy} r={(SQ/2-DOT-4)*frac}
+            fill="none" stroke={T.track} strokeWidth="1" opacity={0.3+i*0.1} strokeDasharray="2 7" />
+        ))}
+        <g ref={vortexTargRef} style={{ willChange: "transform" }}>
+          <circle cx={DOT/2} cy={DOT/2} r={13} fill="none" stroke="#f59e0b" strokeWidth="1.5" opacity="0.5" />
+          <circle cx={DOT/2} cy={DOT/2} r={4}  fill="none" stroke="#f59e0b" strokeWidth="1"   opacity="0.3" />
+          <circle cx={DOT/2} cy={DOT/2} r={2}  fill="#f59e0b" opacity="0.6" />
+        </g>
+        <circle cx={cx} cy={cy} r={2} fill={T.border} />
+        <SvgDot playing={playing} T={T} dotRef={dotRef} />
+      </svg>
+    </PlayField>
   );
 }
 
 // ─── SCORE FLASH ─────────────────────────────────────────────────────────────
 function ScoreFlash({ score, T }) {
-  const color = score>=80?"#00ffcc" : score>=55?"#f59e0b" : "#ef4444";
+  const color = TIER_COLOR[SCORE_TIER(score)];
   return (
     <div style={{ textAlign:"center" }}>
       <span style={{ fontSize:44, fontWeight:"bold", color, fontFamily:"'Courier New', monospace", letterSpacing:-1 }}>{score}</span>
@@ -1423,7 +1504,7 @@ function Result({ T, scores, levels, scoreWarmup, onReplay, onMenu, previousBest
               }}>
                 {lv?.label ?? `L${i+1}`}
               </div>
-              <div style={{ fontSize:26, color: excluded ? T.sub : s>=80?"#00ffcc":s>=55?"#f59e0b":"#ef4444" }}>{s}</div>
+              <div style={{ fontSize:26, color: excluded ? T.sub : TIER_COLOR[SCORE_TIER(s)] }}>{s}</div>
               {excluded && <div style={{ fontSize:7, letterSpacing:1, color:T.sub, opacity:0.6, marginTop:2 }}>not scored</div>}
             </div>
           );

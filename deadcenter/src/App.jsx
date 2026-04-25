@@ -844,6 +844,7 @@ export default function App() {
   if (screen === "result") return (
     <Result T={T} scores={scores} levels={levels} scoreWarmup={scoreWarmup}
       previousBest={runMeta.previousBest} isNewBest={runMeta.isNewBest}
+      runKey={runKeyRef.current}
       onReplay={() => startGame(levels, { countWarmup: scoreWarmup, runKey: runKeyRef.current })} onMenu={goMenu} />
   );
 
@@ -1652,7 +1653,7 @@ function Landing({ T, onEnter }) {
   );
 }
 
-function Result({ T, scores, levels, scoreWarmup, onReplay, onMenu, previousBest, isNewBest }) {
+function Result({ T, scores, levels, scoreWarmup, onReplay, onMenu, previousBest, isNewBest, runKey }) {
   // exclude warmup from average unless scoreWarmup is true
   const scoredPairs = scores
     .map((s, i) => ({ s, lv: levels[i] }))
@@ -1685,6 +1686,25 @@ function Result({ T, scores, levels, scoreWarmup, onReplay, onMenu, previousBest
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Human-readable label for the run type shown in share text and card.
+  const runLabel = (() => {
+    if (runKey?.startsWith("daily:")) {
+      const date = runKey.replace("daily:", "");
+      return `daily run · ${date}`;
+    }
+    // Summarise difficulty mix from the non-warmup levels.
+    const diffOrder = ["easy", "medium", "hard", "impossible"];
+    const playedLevels = levels.filter(l => !l.warmup);
+    const counts = playedLevels.reduce((acc, l) => {
+      acc[l.diff] = (acc[l.diff] || 0) + 1;
+      return acc;
+    }, {});
+    const parts = diffOrder
+      .filter(d => counts[d])
+      .map(d => counts[d] > 1 ? `${counts[d]}× ${d}` : d);
+    return parts.join(" · ");
+  })();
+
   // Wordle-style emoji grid for share — one square per level matching its tier.
   // Warmup runs always show as a grey square so the layout stays consistent.
   const TIER_EMOJI = { perfect:"🎯", sharp:"🟩", decent:"🟨", shaky:"🟧", miss:"🟥" };
@@ -1694,7 +1714,7 @@ function Result({ T, scores, levels, scoreWarmup, onReplay, onMenu, previousBest
   const shareUrl = typeof window !== "undefined" ? `${window.location.origin}${window.location.pathname}` : "";
   const shareTitle = "deadcenter";
   const gradeLower = label.toLowerCase();
-  const shareText = `i scored ${avg}/100 on deadcenter\n${emojiGrid} ${gradeLower}\ncan you beat it?`;
+  const shareText = `deadcenter · ${runLabel}\n${avg}/100 · ${gradeLower}\n${emojiGrid}\ncan you beat it?`;
   const shareTextWithUrl = `${shareText}\n${shareUrl}`.trim();
 
   const [shareState, setShareState] = useState("idle"); // idle | shared | copied | failed
@@ -1832,17 +1852,17 @@ function Result({ T, scores, levels, scoreWarmup, onReplay, onMenu, previousBest
           fontFamily:"'Courier New', monospace",
           animation:"dc-combo-pop 360ms ease-out both",
         }}>
-          <div style={{ fontSize:10, letterSpacing:4, color:T.sub, opacity:0.7, textTransform:"uppercase" }}>
-            shareable
+          <div style={{ fontSize:10, letterSpacing:2, color:"#00ffcc", opacity:0.8, textTransform:"uppercase" }}>
+            {runLabel}
           </div>
-          <div style={{ fontSize:13, letterSpacing:2, color:T.fg, fontWeight:"bold" }}>
-            deadcenter — {avg}/100 · {label}
+          <div style={{ fontSize:11, letterSpacing:1, color:T.fg, opacity:0.85 }}>
+            <strong style={{ color:"#00ffcc" }}>{avg}/100</strong> · {gradeLower}
           </div>
-          <div style={{ fontSize:"clamp(18px, 5vw, 22px)", letterSpacing:"clamp(2px, 1vw, 4px)", lineHeight:1 }}>
+          <div style={{ fontSize:"clamp(20px, 5.5vw, 24px)", letterSpacing:"clamp(2px, 1vw, 4px)", lineHeight:1 }}>
             {emojiGrid}
           </div>
-          <div style={{ fontSize:9, letterSpacing:2, color:T.sub, opacity:0.55 }}>
-            {(shareUrl || "deadcenter.gg").replace(/^https?:\/\//, "")}
+          <div style={{ fontSize:10, letterSpacing:2, color:T.sub, opacity:0.55 }}>
+            can you beat it?
           </div>
 
           <div style={{ display:"flex", gap:8, marginTop:6, width:"100%", justifyContent:"center", flexWrap:"wrap" }}>

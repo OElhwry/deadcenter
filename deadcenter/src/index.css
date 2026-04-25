@@ -16,3 +16,67 @@ body {
   -moz-osx-font-smoothing: grayscale;
   overflow-x: hidden;
 }
+
+@keyframes dc-hit-flash {
+  0%   { opacity: 0.55; }
+  40%  { opacity: 0.28; }
+  100% { opacity: 0; }
+}
+.dc-hit-flash {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(circle at 50% 50%, #00ffcc 0%, #00ffcc44 38%, transparent 72%);
+  mix-blend-mode: screen;
+  animation: dc-hit-flash 420ms ease-out forwards;
+  border-radius: 12px;
+}
+
+@keyframes dc-miss-shake {
+  0%   { transform: translate(0, 0); }
+  15%  { transform: translate(-6px, 1px); }
+  30%  { transform: translate(5px, -1px); }
+  45%  { transform: translate(-4px, 1px); }
+  60%  { transform: translate(3px, 0); }
+  75%  { transform: translate(-2px, 0); }
+  100% { transform: translate(0, 0); }
+}
+.dc-miss-shake {
+  animation: dc-miss-shake 260ms cubic-bezier(.36,.07,.19,.97) both;
+}
+
+@keyframes dc-combo-pop {
+  0%   { transform: scale(0.55) rotate(-4deg); opacity: 0; }
+  35%  { transform: scale(1.32) rotate(2deg); opacity: 1; }
+  65%  { transform: scale(0.94) rotate(-1deg); opacity: 1; }
+  100% { transform: scale(1) rotate(0deg); opacity: 1; }
+}
+.dc-combo {
+  animation: dc-combo-pop 360ms cubic-bezier(.16,1.05,.3,1) both;
+}
+
+@keyframes dc-combo-pulse {
+  0%, 100% { filter: drop-shadow(0 0 6px currentColor) drop-shadow(0 0 14px currentColor); }
+  50%      { filter: drop-shadow(0 0 14px currentColor) drop-shadow(0 0 28px currentColor); }
+}
+.dc-combo-fire {
+  animation: dc-combo-pop 360ms cubic-bezier(.16,1.05,.3,1) both,
+             dc-combo-pulse 900ms ease-in-out 360ms infinite;
+}
+
+@keyframes dc-combo-floater {
+  0%   { transform: translate(-50%, 0) scale(0.6); opacity: 0; }
+  20%  { transform: translate(-50%, -8px) scale(1.1); opacity: 1; }
+  100% { transform: translate(-50%, -42px) scale(0.9); opacity: 0; }
+}
+.dc-combo-floater {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  pointer-events: none;
+  animation: dc-combo-floater 720ms ease-out forwards;
+  font-family: 'Courier New', monospace;
+  font-weight: bold;
+  letter-spacing: 1px;
+  white-space: nowrap;
+}

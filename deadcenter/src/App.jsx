@@ -975,10 +975,13 @@ function DeadcenterLogo({ T, size = 22 }) {
   const r = size / 2 - 1.5;
   const gap = size * 0.2;
   const sw = Math.max(1, size * 0.06);
-  const fontSize = Math.round(size * 1);
+  // Text fontSize must scale slower than the SVG or "deadcenter" overflows
+  // narrow phones. ~0.5x keeps the wordmark proportional to the icon.
+  const fontSize = Math.max(11, Math.round(size * 0.5));
   const dotR = Math.max(2, size * 0.09);
   return (
-    <div style={{ display:"flex", alignItems:"center", gap: Math.round(size * 0.4) }}>
+    <div style={{ display:"flex", alignItems:"center", gap: Math.round(size * 0.3),
+      maxWidth:"100%", minWidth:0 }}>
       <svg width={size} height={size} style={{ display:"block", flexShrink:0 }}>
         {/* outer ring */}
         <circle cx={c} cy={c} r={r} fill="none" stroke="#00ffcc" strokeWidth={sw * 1.2} opacity="0.95" />
@@ -990,8 +993,10 @@ function DeadcenterLogo({ T, size = 22 }) {
         {/* center dot */}
         <circle cx={c} cy={c} r={dotR} fill="#00ffcc" opacity="1" />
       </svg>
-      <span style={{ color:T.fg, fontSize, letterSpacing: Math.max(3, Math.round(size * 0.1)),
-        fontWeight:"bold", opacity:0.9, fontFamily:"'Courier New', monospace" }}>deadcenter</span>
+      <span style={{ color:T.fg, fontSize,
+        letterSpacing: Math.max(2, Math.round(size * 0.06)),
+        fontWeight:"bold", opacity:0.9, fontFamily:"'Courier New', monospace",
+        whiteSpace:"nowrap", overflow:"hidden", textOverflow:"clip", minWidth:0 }}>deadcenter</span>
     </div>
   );
 }
@@ -1003,13 +1008,15 @@ function DeadcenterLogo({ T, size = 22 }) {
 
 const PLAY_W = 360;
 function PlayField({ children }) {
-  // Cap by both width and height so the field never overflows on short phones (landscape).
+  // Cap by width primarily; clamp height too but never below a usable min so
+  // landscape orientation doesn't shrink the field to a sliver.
   return (
     <div style={{
-      width: `min(${PLAY_W}px, calc(100vw - 32px), calc(100dvh - 280px))`,
+      width: `max(220px, min(${PLAY_W}px, calc(100vw - 32px), calc(100dvh - 220px)))`,
       aspectRatio: "1 / 1",
       display: "flex", alignItems: "center", justifyContent: "center",
       position: "relative",
+      flexShrink: 0,
     }}>
       {children}
     </div>
@@ -1373,8 +1380,8 @@ function LegacyMenu({ T, onStart, onUnlockAudio, settings, showSettings, setShow
 
       {showSettings && <SettingsPanel T={T} settings={settings} setSettings={setSettings} onClose={()=>setShowSettings(false)} />}
 
-      <div style={{ marginBottom:18 }}>
-        <DeadcenterLogo T={T} size={52} />
+      <div style={{ marginBottom:18, maxWidth:"100%" }}>
+        <DeadcenterLogo T={T} size={42} />
       </div>
 
       {/* Daily run — same 5 levels for everyone today, separate persisted best */}
@@ -1578,11 +1585,14 @@ function Landing({ T, onEnter }) {
 
   return (
     <div onClick={onEnter} style={{
-      height:"100dvh", minHeight:"100vh", width:"100%", position:"relative", overflow:"hidden",
+      // Pin to viewport so the page can't be scrolled — otherwise on mobile
+      // the user can drag past the artwork and reveal the body background.
+      position:"fixed", inset:0, overflow:"hidden",
       background:T.bg, color:T.fg, fontFamily:"'Courier New', monospace",
       cursor:"pointer", userSelect:"none", WebkitTapHighlightColor:"transparent",
       display:"flex", alignItems:"center", justifyContent:"center",
       padding:"max(20px, env(safe-area-inset-top)) 16px max(20px, env(safe-area-inset-bottom))",
+      touchAction:"none",
     }}>
       {/* drifting ASCII field — covers the whole viewport */}
       <pre ref={preRef} aria-hidden="true" style={{
@@ -1611,17 +1621,15 @@ function Landing({ T, onEnter }) {
           [ INCOMING ]
         </div>
 
-        <DeadcenterLogo T={T} size={Math.min(80, Math.max(56, Math.round(vw * 0.18)))} />
+        <DeadcenterLogo T={T} size={Math.min(72, Math.max(48, Math.round(vw * 0.16)))} />
 
-        <pre style={{
-          margin:"4px 0 0", color:T.fg, opacity:0.55,
-          fontSize:"clamp(9px, 2.4vw, 11px)", lineHeight:1.15,
-          letterSpacing:"0.12em",
+        <div style={{
+          color:T.fg, opacity:0.55,
+          fontSize:"clamp(10px, 2.6vw, 12px)",
+          letterSpacing:"clamp(2px, 1vw, 4px)",
           fontFamily:"'Courier New', monospace",
-        }}>{`        ╷
-   ╶────┼────╴
-        │
-   stop · the · dot`}</pre>
+          textTransform:"uppercase",
+        }}>stop · the · dot</div>
 
         <div style={{
           marginTop:"clamp(8px, 2vw, 14px)",

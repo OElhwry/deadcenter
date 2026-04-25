@@ -1685,22 +1685,53 @@ function Result({ T, scores, levels, scoreWarmup, onReplay, onMenu, previousBest
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const [shareState, setShareState] = useState("idle"); // idle | copied | failed
+  // Wordle-style emoji grid for share — one square per level matching its tier.
+  // Warmup runs always show as a grey square so the layout stays consistent.
+  const TIER_EMOJI = { perfect:"🎯", sharp:"🟩", decent:"🟨", shaky:"🟧", miss:"🟥" };
+  const emojiGrid = scores
+    .map((s, i) => levels[i]?.warmup && !scoreWarmup ? "⬜" : TIER_EMOJI[SCORE_TIER(s)])
+    .join("");
+  const shareUrl = typeof window !== "undefined" ? `${window.location.origin}${window.location.pathname}` : "";
+  const shareTitle = "deadcenter";
+  const gradeLower = label.toLowerCase();
+  const shareText = `i scored ${avg}/100 on deadcenter\n${emojiGrid} ${gradeLower}\ncan you beat it?`;
+  const shareTextWithUrl = `${shareText}\n${shareUrl}`.trim();
+
+  const [shareState, setShareState] = useState("idle"); // idle | shared | copied | failed
+
   const handleShare = async () => {
-    const url = typeof window !== "undefined" ? `${window.location.origin}${window.location.pathname}` : "";
-    const text = `deadcenter ${avg} · ${label} 🎯 ${url}`.trim();
+    playSfx("select");
     try {
       if (navigator.share) {
-        await navigator.share({ text });
-        setShareState("copied");
+        await navigator.share({ title: shareTitle, text: shareText, url: shareUrl });
+        setShareState("shared");
       } else {
-        await navigator.clipboard.writeText(text);
+        await navigator.clipboard.writeText(shareTextWithUrl);
         setShareState("copied");
       }
+    } catch (err) {
+      // User canceling native share throws AbortError — don't show "failed" for that.
+      if (err && err.name === "AbortError") { setShareState("idle"); return; }
+      setShareState("failed");
+    }
+    setTimeout(() => setShareState("idle"), 1800);
+  };
+
+  const handleCopy = async () => {
+    playSfx("select");
+    try {
+      await navigator.clipboard.writeText(shareTextWithUrl);
+      setShareState("copied");
     } catch {
       setShareState("failed");
     }
     setTimeout(() => setShareState("idle"), 1800);
+  };
+
+  const handleTweet = () => {
+    playSfx("select");
+    const intent = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(shareUrl)}`;
+    window.open(intent, "_blank", "noopener,noreferrer");
   };
 
   const handleReplay = () => { playSfx("enter"); onReplay(); };
@@ -1791,16 +1822,83 @@ function Result({ T, scores, levels, scoreWarmup, onReplay, onMenu, previousBest
         ))}
       </div>
 
-      <button onClick={handleShare}
-        style={{ marginTop:18, background:"transparent",
-          border:`1px solid ${shareState === "copied" ? "#00ffcc" : T.border}`,
-          color: shareState === "copied" ? "#00ffcc" : T.sub,
-          padding:"11px 28px", fontSize:11, letterSpacing:4, textTransform:"uppercase",
-          cursor:"pointer", fontFamily:"'Courier New', monospace",
-          minHeight:44, borderRadius:4,
-          transition:"border-color 0.2s, color 0.2s" }}>
-        {shareState === "copied" ? "copied!" : shareState === "failed" ? "copy failed" : "share score"}
-      </button>
+      {/* shareable card — preview of what gets sent / copied. Looks like a
+          Wordle-style result so it reads at a glance in chat threads. */}
+      {tallyDone && (
+        <div style={{ marginTop:24, width:"100%", maxWidth:340,
+          padding:"16px 18px", borderRadius:10,
+          background:`${T.card}`, border:`1px solid ${T.border}`,
+          display:"flex", flexDirection:"column", alignItems:"center", gap:10,
+          fontFamily:"'Courier New', monospace",
+          animation:"dc-combo-pop 360ms ease-out both",
+        }}>
+          <div style={{ fontSize:10, letterSpacing:4, color:T.sub, opacity:0.7, textTransform:"uppercase" }}>
+            shareable
+          </div>
+          <div style={{ fontSize:13, letterSpacing:2, color:T.fg, fontWeight:"bold" }}>
+            deadcenter — {avg}/100 · {label}
+          </div>
+          <div style={{ fontSize:"clamp(18px, 5vw, 22px)", letterSpacing:"clamp(2px, 1vw, 4px)", lineHeight:1 }}>
+            {emojiGrid}
+          </div>
+          <div style={{ fontSize:9, letterSpacing:2, color:T.sub, opacity:0.55 }}>
+            {(shareUrl || "deadcenter.gg").replace(/^https?:\/\//, "")}
+          </div>
+
+          <div style={{ display:"flex", gap:8, marginTop:6, width:"100%", justifyContent:"center", flexWrap:"wrap" }}>
+            <button onClick={handleShare}
+              style={{
+                background: shareState === "shared" || shareState === "copied" ? "#00ffcc" : "#00ffcc",
+                color:"#000", border:"none",
+                padding:"11px 18px", fontSize:11, letterSpacing:3, textTransform:"uppercase",
+                cursor:"pointer", fontFamily:"'Courier New', monospace", fontWeight:"bold",
+                minHeight:44, borderRadius:4, flex:"1 1 120px",
+                transition:"background 0.18s, transform 0.15s",
+              }}
+              onMouseEnter={e=>{ e.currentTarget.style.background="#00e6b8"; }}
+              onMouseLeave={e=>{ e.currentTarget.style.background="#00ffcc"; }}>
+              {shareState === "shared" ? "shared ✓"
+               : shareState === "copied" ? "copied ✓"
+               : shareState === "failed" ? "try again"
+               : (typeof navigator !== "undefined" && navigator.share ? "share" : "copy")}
+            </button>
+
+            <button onClick={handleTweet}
+              aria-label="Post to X / Twitter"
+              style={{
+                background:"transparent", color:T.sub,
+                border:`1px solid ${T.border}`,
+                padding:"11px 14px", fontSize:11, letterSpacing:3, textTransform:"uppercase",
+                cursor:"pointer", fontFamily:"'Courier New', monospace",
+                minHeight:44, minWidth:48, borderRadius:4,
+                transition:"border-color 0.2s, color 0.2s",
+              }}
+              onMouseEnter={e=>{ e.currentTarget.style.color="#00ffcc"; e.currentTarget.style.borderColor="#00ffcc"; }}
+              onMouseLeave={e=>{ e.currentTarget.style.color=T.sub; e.currentTarget.style.borderColor=T.border; }}>
+              𝕏 post
+            </button>
+
+            {/* On native-share platforms, expose copy as a separate action so users
+                can grab text without invoking the OS share sheet. */}
+            {typeof navigator !== "undefined" && navigator.share && (
+              <button onClick={handleCopy}
+                aria-label="Copy score to clipboard"
+                style={{
+                  background:"transparent", color:T.sub,
+                  border:`1px solid ${T.border}`,
+                  padding:"11px 14px", fontSize:11, letterSpacing:3, textTransform:"uppercase",
+                  cursor:"pointer", fontFamily:"'Courier New', monospace",
+                  minHeight:44, minWidth:48, borderRadius:4,
+                  transition:"border-color 0.2s, color 0.2s",
+                }}
+                onMouseEnter={e=>{ e.currentTarget.style.color="#00ffcc"; e.currentTarget.style.borderColor="#00ffcc"; }}
+                onMouseLeave={e=>{ e.currentTarget.style.color=T.sub; e.currentTarget.style.borderColor=T.border; }}>
+                copy
+              </button>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -4,8 +4,11 @@
   box-sizing: border-box;
 }
 
-html {
+html, body {
   overflow-x: hidden;
+  /* Prevent pull-to-refresh / overscroll glow on mobile so a quick swipe
+     during play doesn't reload the page. */
+  overscroll-behavior: none;
 }
 
 body {
@@ -14,7 +17,14 @@ body {
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  overflow-x: hidden;
+  /* Disable iOS double-tap zoom while keeping pinch-zoom available. */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Buttons should never show the iOS gray tap flash either. */
+button {
+  -webkit-tap-highlight-color: transparent;
 }
 
 @keyframes dc-hit-flash {

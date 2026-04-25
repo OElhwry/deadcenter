@@ -255,6 +255,15 @@ function startMenuMusic(_ctx, volume = 0.3, intensity = 0) {
       intensity = Math.max(0, Math.min(1, i));
       a.volume = effectiveVol(currentVol, intensity);
     },
+    // Pause without resetting position — used when the page/tab is hidden.
+    pause() {
+      if (stopped) return;
+      try { a.pause(); } catch {}
+    },
+    resume() {
+      if (stopped) return;
+      a.play().catch(() => {});
+    },
     stop(immediate = false) {
       stopped = true;
       if (fadeId) { clearInterval(fadeId); fadeId = null; }
@@ -729,21 +738,34 @@ export default function App() {
     }
   }, [lvIdx, screen]);
 
-  // Pause the RAF when the tab is hidden so frame timing doesn't drift / momentum doesn't tick offscreen.
+  // Pause the RAF + music when the tab is hidden / phone screen is locked,
+  // so frame timing doesn't drift and audio doesn't keep playing in the background.
   useEffect(() => {
-    const onVis = () => {
-      if (document.hidden) {
-        if (activeRef.current) {
-          cancelAnimationFrame(rafRef.current);
-          // leave activeRef true so resume knows to restart
-        }
-      } else if (screen === "play" && activeRef.current) {
+    const onHide = () => {
+      if (activeRef.current) {
+        cancelAnimationFrame(rafRef.current);
+        // leave activeRef true so resume knows to restart
+      }
+      if (musicLoopRef.current) musicLoopRef.current.pause?.();
+    };
+    const onShow = () => {
+      if (screen === "play" && activeRef.current) {
         rafRef.current = requestAnimationFrame(animate);
       }
+      const shouldPlay = (screen === "menu" || screen === "play" || screen === "result")
+        && !mutedRef.current && !musicPaused;
+      if (shouldPlay && musicLoopRef.current) musicLoopRef.current.resume?.();
     };
+    const onVis = () => { if (document.hidden) onHide(); else onShow(); };
     document.addEventListener("visibilitychange", onVis);
-    return () => document.removeEventListener("visibilitychange", onVis);
-  }, [screen, animate]);
+    window.addEventListener("pagehide", onHide);
+    window.addEventListener("pageshow", onShow);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("pagehide", onHide);
+      window.removeEventListener("pageshow", onShow);
+    };
+  }, [screen, animate, musicPaused]);
 
   // Start/stop menu music when screen changes
   useEffect(() => {
@@ -831,16 +853,18 @@ export default function App() {
 
   return (
     <div onClick={playing ? handleStop : undefined} style={{
-      minHeight:"100vh", display:"flex", flexDirection:"column",
+      minHeight:"100dvh", display:"flex", flexDirection:"column",
       alignItems:"center", justifyContent:"center",
       background:T.bg, cursor: playing ? "crosshair" : "default",
       userSelect:"none", fontFamily:"'Courier New', monospace",
       transition:"background 0.4s",
-      padding:"72px 16px 32px",
+      padding:"calc(60px + env(safe-area-inset-top)) 16px calc(32px + env(safe-area-inset-bottom))",
       touchAction:"manipulation",
+      WebkitTapHighlightColor:"transparent",
+      overscrollBehavior:"contain",
     }}>
       {/* combo badge — floating, hidden until streak ≥2, escalates with N */}
-      <div style={{ position:"fixed", top:48, left:0, right:0, height:0, zIndex:11, pointerEvents:"none" }}>
+      <div style={{ position:"fixed", top:"calc(48px + env(safe-area-inset-top))", left:0, right:0, height:0, zIndex:11, pointerEvents:"none" }}>
         <div style={{ position:"relative", maxWidth:560, margin:"0 auto" }}>
           <ComboBadge combo={combo} />
         </div>
@@ -849,7 +873,8 @@ export default function App() {
       {/* top bar — swallow clicks so mid-run taps near the top don't end the round */}
       <div onClick={e => e.stopPropagation()} style={{
         position:"fixed", top:0, left:0, right:0,
-        display:"flex", alignItems:"center", padding:"6px 10px",
+        display:"flex", alignItems:"center",
+        padding:"calc(6px + env(safe-area-inset-top)) 10px 6px",
         background:`${T.bg}ee`, backdropFilter:"blur(8px)",
         WebkitBackdropFilter:"blur(8px)", zIndex:10,
         borderBottom:`1px solid ${T.border}`,
@@ -978,9 +1003,10 @@ function DeadcenterLogo({ T, size = 22 }) {
 
 const PLAY_W = 360;
 function PlayField({ children }) {
+  // Cap by both width and height so the field never overflows on short phones (landscape).
   return (
     <div style={{
-      width: `min(${PLAY_W}px, calc(100vw - 32px))`,
+      width: `min(${PLAY_W}px, calc(100vw - 32px), calc(100dvh - 280px))`,
       aspectRatio: "1 / 1",
       display: "flex", alignItems: "center", justifyContent: "center",
       position: "relative",
@@ -1332,17 +1358,18 @@ function LegacyMenu({ T, onStart, onUnlockAudio, settings, showSettings, setShow
   const hasSelection = playlistIds.length > 0;
 
   return (
-    <div style={{ minHeight:"100vh", display:"flex", flexDirection:"column",
-      alignItems:"center", justifyContent:"center",
+    <div style={{ minHeight:"100dvh", display:"flex", flexDirection:"column",
+      alignItems:"center", justifyContent:"flex-start",
       background:T.bg, fontFamily:"'Courier New', monospace",
       color:T.fg, textAlign:"center", transition:"background 0.4s",
-      padding:"56px 16px 140px" }}>
+      padding:"calc(40px + env(safe-area-inset-top)) 16px calc(150px + env(safe-area-inset-bottom))",
+      WebkitTapHighlightColor:"transparent" }}>
 
       <button onClick={async ()=>{ await onUnlockAudio?.(); playSfx("select"); setShowSettings(true); }}
-        style={{ position:"fixed", top:8, right:8, background:"transparent",
-          border:"none", cursor:"pointer", color:T.sub, fontSize:18,
+        style={{ position:"fixed", top:"calc(8px + env(safe-area-inset-top))", right:8, background:"transparent",
+          border:"none", cursor:"pointer", color:T.sub, fontSize:20,
           minWidth:44, minHeight:44, display:"flex", alignItems:"center", justifyContent:"center",
-          padding:0 }}>⚙</button>
+          padding:0, zIndex:31 }}>⚙</button>
 
       {showSettings && <SettingsPanel T={T} settings={settings} setSettings={setSettings} onClose={()=>setShowSettings(false)} />}
 
@@ -1476,6 +1503,7 @@ function Landing({ T, onEnter }) {
   const preRef = useRef(null);
   const tickRef = useRef(0);
   const dimsRef = useRef({ cols: 80, rows: 30, fontSize: 12 });
+  const [vw, setVw] = useState(typeof window !== "undefined" ? window.innerWidth : 360);
   const PALETTE = " ·.:+*×•◦○●";
 
   // Resize the grid to fill the viewport. Char width is roughly 0.6em for
@@ -1484,7 +1512,9 @@ function Landing({ T, onEnter }) {
     const update = () => {
       const w = window.innerWidth;
       const h = window.innerHeight;
-      const fontSize = Math.max(9, Math.min(15, Math.round(w * 0.012)));
+      setVw(w);
+      // Slightly larger min font on tiny screens so the field doesn't look pixely.
+      const fontSize = Math.max(10, Math.min(15, Math.round(w * 0.014)));
       const charW = fontSize * 0.66; // 0.6 monospace + 0.06 letter-spacing margin
       const lineH = fontSize * 1.15;
       dimsRef.current = {
@@ -1499,7 +1529,11 @@ function Landing({ T, onEnter }) {
     };
     update();
     window.addEventListener("resize", update);
-    return () => window.removeEventListener("resize", update);
+    window.addEventListener("orientationchange", update);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("orientationchange", update);
+    };
   }, []);
 
   useEffect(() => {
@@ -1544,11 +1578,11 @@ function Landing({ T, onEnter }) {
 
   return (
     <div onClick={onEnter} style={{
-      minHeight:"100vh", width:"100%", position:"relative", overflow:"hidden",
+      height:"100dvh", minHeight:"100vh", width:"100%", position:"relative", overflow:"hidden",
       background:T.bg, color:T.fg, fontFamily:"'Courier New', monospace",
-      cursor:"pointer", userSelect:"none",
+      cursor:"pointer", userSelect:"none", WebkitTapHighlightColor:"transparent",
       display:"flex", alignItems:"center", justifyContent:"center",
-      padding:"24px 16px",
+      padding:"max(20px, env(safe-area-inset-top)) 16px max(20px, env(safe-area-inset-bottom))",
     }}>
       {/* drifting ASCII field — covers the whole viewport */}
       <pre ref={preRef} aria-hidden="true" style={{
@@ -1569,18 +1603,20 @@ function Landing({ T, onEnter }) {
       {/* foreground */}
       <div style={{
         position:"relative", zIndex:1, textAlign:"center",
-        display:"flex", flexDirection:"column", alignItems:"center", gap:18,
+        display:"flex", flexDirection:"column", alignItems:"center",
+        gap:"clamp(12px, 3vw, 18px)",
+        maxWidth:"100%",
       }}>
-        <div style={{ fontSize:"clamp(10px, 2vw, 12px)", letterSpacing:6, color:"#00ffcc", opacity:0.7 }}>
+        <div style={{ fontSize:"clamp(10px, 2.4vw, 12px)", letterSpacing:"clamp(3px, 1.4vw, 6px)", color:"#00ffcc", opacity:0.7 }}>
           [ INCOMING ]
         </div>
 
-        <DeadcenterLogo T={T} size={80} />
+        <DeadcenterLogo T={T} size={Math.min(80, Math.max(56, Math.round(vw * 0.18)))} />
 
         <pre style={{
           margin:"4px 0 0", color:T.fg, opacity:0.55,
-          fontSize:"clamp(8px, 1.4vw, 11px)", lineHeight:1.15,
-          letterSpacing:"0.15em",
+          fontSize:"clamp(9px, 2.4vw, 11px)", lineHeight:1.15,
+          letterSpacing:"0.12em",
           fontFamily:"'Courier New', monospace",
         }}>{`        ╷
    ╶────┼────╴
@@ -1588,9 +1624,11 @@ function Landing({ T, onEnter }) {
    stop · the · dot`}</pre>
 
         <div style={{
-          marginTop:14, padding:"14px 32px",
+          marginTop:"clamp(8px, 2vw, 14px)",
+          padding:"clamp(11px, 2.6vw, 14px) clamp(20px, 6vw, 32px)",
           border:"1px solid #00ffcc", color:"#00ffcc",
-          fontSize:13, letterSpacing:8, fontWeight:"bold",
+          fontSize:"clamp(12px, 3.2vw, 13px)",
+          letterSpacing:"clamp(4px, 1.8vw, 8px)", fontWeight:"bold",
           background:"#00ffcc11",
           boxShadow:"0 0 24px #00ffcc33",
           animation:"dc-combo-pop 600ms ease-out",
@@ -1598,8 +1636,8 @@ function Landing({ T, onEnter }) {
           ENTER →
         </div>
 
-        <div style={{ fontSize:10, letterSpacing:4, color:T.sub, opacity:0.7, marginTop:2 }}>
-          tap · click · space
+        <div style={{ fontSize:10, letterSpacing:3, color:T.sub, opacity:0.7, marginTop:2 }}>
+          tap to start
         </div>
       </div>
     </div>
@@ -1661,11 +1699,12 @@ function Result({ T, scores, levels, scoreWarmup, onReplay, onMenu, previousBest
   const handleMenu = () => { playSfx("back"); onMenu(); };
 
   return (
-    <div style={{ minHeight:"100vh", display:"flex", flexDirection:"column",
+    <div style={{ minHeight:"100dvh", display:"flex", flexDirection:"column",
       alignItems:"center", justifyContent:"center",
       background:T.bg, fontFamily:"'Courier New', monospace",
       color:T.fg, textAlign:"center", transition:"background 0.4s",
-      padding:"40px 16px 56px" }}>
+      padding:"calc(40px + env(safe-area-inset-top)) 16px calc(56px + env(safe-area-inset-bottom))",
+      WebkitTapHighlightColor:"transparent" }}>
 
       <p style={{ color:T.sub, fontSize:12, letterSpacing:5, marginBottom:10, opacity:0.7 }}>FINAL SCORE</p>
       <div className={tallyDone ? "dc-combo-pop" : undefined} style={{

@@ -1329,6 +1329,7 @@ function LegacyMenu({ T, onStart, onUnlockAudio, settings, showSettings, setShow
       .map(l => ({ l, k: Math.random() }))
       .sort((a, b) => (diffOrder[a.l.diff] - diffOrder[b.l.diff]) || (a.k - b.k))
       .map(({ l }) => l);
+    if (pickedLevels.length === 0) return;
     const skipWarmup = shouldSkipWarmup(bestScores);
     const chosen = [
       ...(skipWarmup ? [] : [WARMUP]),
@@ -1350,7 +1351,7 @@ function LegacyMenu({ T, onStart, onUnlockAudio, settings, showSettings, setShow
 
   const maxSpeedLabel = { easy:"none", medium:"2x", hard:"3x", impossible:"4x" };
   const diffSections = [
-    { key:"easy", label:"I  EASY", levels:[WARMUP, ...POOL.filter(l => l.diff === "easy")] },
+    { key:"easy", label:"I  EASY", levels:POOL.filter(l => l.diff === "easy") },
     { key:"medium", label:"II  MEDIUM", levels:POOL.filter(l => l.diff === "medium") },
     { key:"hard", label:"III  HARD", levels:POOL.filter(l => l.diff === "hard") },
     { key:"impossible", label:"INF  IMPOSSIBLE", levels:POOL.filter(l => l.diff === "impossible") },

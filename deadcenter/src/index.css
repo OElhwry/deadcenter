@@ -4,10 +4,14 @@
   box-sizing: border-box;
 }
 
-html, body {
+html {
+  /* overflow-x hidden on <html> suppresses vertical scroll in Safari — keep off */
+  overscroll-behavior: none;
+}
+
+body {
   overflow-x: hidden;
-  /* Prevent pull-to-refresh / overscroll glow on mobile so a quick swipe
-     during play doesn't reload the page. */
+  /* Prevent pull-to-refresh / overscroll glow on mobile. */
   overscroll-behavior: none;
 }
 

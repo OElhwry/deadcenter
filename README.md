@@ -1,5 +1,7 @@
 <p align="center">
+  <a href="https://deadcenter.fun">
   <img src="deadcenter/public/og-image.png" width="800" alt="Deadcenter — Stop the Dot">
+  </a>
 </p>
 
 <p align="center">

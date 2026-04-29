@@ -1,8 +1,6 @@
-<h1 align="center">
-  <img src="deadcenter\public\og-image.png" width="64" alt="Deadcenter">
-  <br>
-  Deadcenter
-</h1>
+<p align="center">
+  <img src="deadcenter/public/og-image.png" width="800" alt="Deadcenter — Stop the Dot">
+</p>
 
 <p align="center">
   <b>One input. One chance. Stop the dot.</b><br>
@@ -64,11 +62,8 @@ No tutorial. No hand-holding. One shot per level.
 
 | Level | Mechanic |
 |---|---|
-| warm up | slow horizontal bounce — the game's one free pass |
 | steady | faster bounce, center it |
 | sway | smooth sine drift, release at center |
-| float | very slow circular orbit, stop at 12 o'clock |
-| cruise | slow 2D bounce, hit the bullseye |
 | drop | vertical fall with gentle gravity, stop at the bottom |
 
 ### Tier II — Medium
@@ -77,8 +72,6 @@ No tutorial. No hand-holding. One shot per level.
 | Level | Mechanic |
 |---|---|
 | diagonal | diagonal travel with gravity buildup |
-| orbit | circular orbit, momentum ramps |
-| 2d bounce | random 2D path, gaining speed |
 | counter orbit | orbit with a counter-rotating target |
 | ripple | dot and target both sway at different rates — find the overlap |
 
@@ -87,10 +80,8 @@ No tutorial. No hand-holding. One shot per level.
 
 | Level | Mechanic |
 |---|---|
-| chaos | direction snaps randomly, speed compounds |
 | crossfire | tiny precision target, fast dot |
 | blind | dot goes dark — feel the rhythm |
-| moving target | dot and target both move independently |
 | eclipse | moving target + blinking dot |
 
 ### Tier ∞ — Impossible
@@ -98,10 +89,8 @@ No tutorial. No hand-holding. One shot per level.
 
 | Level | Mechanic |
 |---|---|
-| ghost | nearly invisible — trust instinct |
 | vortex | pulsing spiral orbit + rotating target |
 | phase orbit | orbital dot phases in and out + live rotating target |
-| abyss | 2D bounce, nearly invisible — aim blind |
 | collapse | extreme chaos (snaps every 2–6 frames) + precision moving target |
 
 ---

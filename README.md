@@ -1,5 +1,5 @@
 <h1 align="center">
-  <img src="deadcenter/public/icons.svg" width="64" alt="Deadcenter">
+  <img src="deadcenter\public\og-image.png" width="64" alt="Deadcenter">
   <br>
   Deadcenter
 </h1>
@@ -7,7 +7,7 @@
 <p align="center">
   <b>One input. One chance. Stop the dot.</b><br>
   A reflex timing game that starts forgiving and ends ruthless.<br>
-  20 levels. 4 tiers. One question — are you dead center?
+  20 levels. 4 tiers. One question, are you dead center?
 </p>
 
 <p align="center">

@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://deadcenter.fun"><img src="https://img.shields.io/badge/play%20now-deadcenter.fun-ef4444?style=for-the-badge" alt="Play now"></a>
-  <img src="https://img.shields.io/badge/version-1.0.1-f97316?style=for-the-badge" alt="Version">
+  <a href ="https://github.com/OElhwry/deadcenter/releases/tag/v1.0.1"><img src="https://img.shields.io/badge/version-1.0.1-f97316?style=for-the-badge" alt="Version"></a>
   <img src="https://img.shields.io/badge/license-private-525252?style=for-the-badge" alt="Private">
 </p>
 

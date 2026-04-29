@@ -1,8 +1,10 @@
-<p align="center">
+<h1 align="center">
   <a href="https://deadcenter.fun">
   <img src="deadcenter/public/og-image.png" width="800" alt="Deadcenter — Stop the Dot">
   </a>
-</p>
+  <br>
+  deadcenter
+</h1>
 
 <p align="center">
   <b>One input. One chance. Stop the dot.</b><br>

@@ -5,7 +5,7 @@
 <p align="center">
   <b>One input. One chance. Stop the dot.</b><br>
   A reflex timing game that starts forgiving and ends ruthless.<br>
-  20 levels. 4 tiers. One question, are you dead center?
+  12 levels. 4 tiers. One question, are you dead center?
 </p>
 
 <p align="center">
@@ -33,7 +33,7 @@
 
 ## ◎ What is Deadcenter?
 
-A fast, brutal browser timing game. A dot moves across your screen — your job is to stop it as close to the target as possible using a single input: **click, tap, or Space**.
+A fast, brutal browser timing game. A dot moves across your screen, your job is to stop it as close to the target as possible using a single input: **click, tap, or Space**.
 
 Easy levels ease you in. Hard levels punish hesitation. Impossible levels will make you question your senses.
 
